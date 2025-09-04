@@ -21,7 +21,7 @@ A comprehensive GUI tool for configuring and managing Extreme Networks VOSS swit
 
 1. Clone this repository:
    ```
-   git clone https://github.com/yourusername/Voss-Configurator.git
+   git clone https://github.com/PneumaticDoggo/Voss-Configurator.git
    cd Voss-Configurator
    ```
 
@@ -76,11 +76,6 @@ Apply saved configuration files to devices:
 2. Select a configuration file
 3. Apply the configuration to the device
 
-## License
-
-[MIT License](LICENSE)
-
 ## Acknowledgments
 
 - Extreme Networks for VOSS documentation
-- Contributors to this project
