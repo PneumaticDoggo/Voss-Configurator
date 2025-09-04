@@ -13,7 +13,7 @@ A comprehensive GUI tool for configuring and managing Extreme Networks VOSS swit
 
 ## Requirements
 
-- Python 3.6+
+- Python 3.11+
 - Required Python packages (see `requirements.txt`)
 - For serial connections: A compatible serial adapter
 
