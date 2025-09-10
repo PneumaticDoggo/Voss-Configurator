@@ -2214,19 +2214,15 @@ class VOSSManagerGUI:
             return
         
         try:
-            # Clear existing data
             for item in self.csv_tree.get_children():
                 self.csv_tree.delete(item)
             
-            # Load CSV data
             with open(csv_file, 'r', newline='', encoding='utf-8') as file:
                 csv_reader = csv.DictReader(file)
                 
-                # Store the CSV data for later use
                 self.csv_data = []
                 
                 for row in csv_reader:
-                    # Add to tree view (removed VLAN Range column from display)
                     values = (
                         row.get('IP-Address', ''),
                         row.get('Device', ''),
@@ -2238,10 +2234,8 @@ class VOSSManagerGUI:
                     )
                     self.csv_tree.insert('', 'end', values=values)
                     
-                    # Store raw data (including VLAN Range for processing)
                     self.csv_data.append(row)
                 
-                # Auto-detect and set gateway IP
                 detected_gateway = self.analyze_network_and_detect_gateway()
                 if detected_gateway:
                     self.base_gateway_var.set(detected_gateway)
@@ -2259,10 +2253,8 @@ class VOSSManagerGUI:
                             foreground="orange"
                         )
                 
-                # Prompt for management VLAN first
                 self.prompt_management_vlan()
                 
-                # Auto-detect VLANs from CSV
                 detected_vlans = self.analyze_and_detect_vlans()
                 vlan_message = ""
                 if detected_vlans:
@@ -2316,7 +2308,6 @@ class VOSSManagerGUI:
         dialog.transient(self.root)
         dialog.grab_set()
         
-        # Create form fields
         fields = [
             ("IP Address:", "IP-Address"),
             ("Device Name:", "Device"),
@@ -2337,27 +2328,21 @@ class VOSSManagerGUI:
         
         def save_device():
             try:
-                # Validate required fields
                 required_fields = ["IP-Address", "Device", "Location", "Nick-name", "sys-id", "sys-name"]
                 for field in required_fields:
                     if not vars_dict[field].get().strip():
                         messagebox.showerror("Error", f"{field.replace('-', ' ').title()} is required")
                         return
                 
-                # Create values tuple
                 values = tuple(vars_dict[key].get() for key, _ in [(f[1], None) for f in fields])
                 
                 if item:
-                    # Update existing
                     self.csv_tree.item(item, values=values)
                 else:
-                    # Add new
                     self.csv_tree.insert('', 'end', values=values)
                 
-                # Update internal data
                 self.update_csv_data_from_tree()
                 
-                # Auto-detect gateway if this is a new device and no gateway is set
                 if not item and not self.base_gateway_var.get().strip():
                     detected_gateway = self.analyze_network_and_detect_gateway()
                     if detected_gateway:
@@ -2373,7 +2358,6 @@ class VOSSManagerGUI:
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save device: {str(e)}")
         
-        # Auto-generate button for System ID and Nick Name
         auto_frame = ttk.Frame(dialog)
         auto_frame.grid(row=len(fields), column=0, columnspan=2, pady=10)
         
@@ -2398,8 +2382,7 @@ class VOSSManagerGUI:
             if numbers:
                 # Use last number found
                 host_num = int(numbers[-1])
-                # Generate system ID in format: 0.e{area}.{host_num}
-                area = max(1, (host_num // 100) + 1)  # Ensure area is at least 1
+                area = max(1, (host_num // 100) + 1)
                 system_id = f"0.e{area}.{host_num:02d}"
                 vars_dict["sys-id"].set(system_id)
             else:
@@ -2415,15 +2398,12 @@ class VOSSManagerGUI:
         system_id = vars_dict["sys-id"].get()
         
         if hostname and system_id:
-            # Extract suffix from system ID
             parts = system_id.split('.')
             if len(parts) >= 3:
                 suffix = parts[-1]
-                # Extract numbers from hostname
                 numbers = re.findall(r'\d+', hostname)
                 if numbers:
                     host_num = numbers[-1]
-                    # Extract area from system ID
                     area_part = parts[1] if len(parts) > 1 else "e1"
                     area_code = area_part[1:] if area_part.startswith('e') else "1"
                     nick_name = f"{area_code}.e{area_code}.{suffix}"
@@ -2453,13 +2433,11 @@ class VOSSManagerGUI:
         try:
             import ipaddress
             
-            # Extract all valid IP addresses
             ip_addresses = []
             for device in self.csv_data:
                 ip_str = device.get('IP-Address', '').strip()
                 if ip_str:
                     try:
-                        # Handle various IP formats (with or without subnet mask)
                         if '/' in ip_str:
                             ip_obj = ipaddress.IPv4Interface(ip_str)
                             ip_addresses.append(ip_obj.ip)
@@ -2467,16 +2445,14 @@ class VOSSManagerGUI:
                             ip_obj = ipaddress.IPv4Address(ip_str)
                             ip_addresses.append(ip_obj)
                     except ValueError:
-                        continue  # Skip invalid IPs
+                        continue 
             
             if not ip_addresses:
                 return None
             
-            # Determine the most common network
             networks = {}
             for ip in ip_addresses:
-                # Try common subnet masks to find the network
-                for prefix in [24, 23, 22, 25, 16]:  # Common enterprise subnets
+                for prefix in [24, 23, 22, 25, 16]:  
                     try:
                         network = ipaddress.IPv4Network(f"{ip}/{prefix}", strict=False)
                         network_str = str(network.network_address) + f"/{prefix}"
@@ -2484,24 +2460,21 @@ class VOSSManagerGUI:
                         if network_str not in networks:
                             networks[network_str] = []
                         networks[network_str].append(ip)
-                        break  # Use first matching network
+                        break  
                     except ValueError:
                         continue
             
             if not networks:
                 return None
             
-            # Find the network with the most devices
             best_network = max(networks.keys(), key=lambda k: len(networks[k]))
             best_network_obj = ipaddress.IPv4Network(best_network)
             
-            # Gateway is typically the first usable IP in the network
             gateway_ip = best_network_obj.network_address + 1
             
             return str(gateway_ip)
             
         except ImportError:
-            # Fallback method without ipaddress module
             return self.simple_gateway_detection()
         except Exception:
             return self.simple_gateway_detection()
@@ -2512,22 +2485,17 @@ class VOSSManagerGUI:
             return None
         
         try:
-            # Get first valid IP address
             for device in self.csv_data:
                 ip_str = device.get('IP-Address', '').strip()
                 if ip_str and '.' in ip_str:
-                    # Remove subnet mask if present
                     ip_str = ip_str.split('/')[0]
                     
-                    # Split IP and replace last octet with 1 (common gateway pattern)
                     parts = ip_str.split('.')
                     if len(parts) == 4:
                         try:
-                            # Validate parts are numbers
                             for part in parts:
                                 int(part)
                             
-                            # Create gateway by setting last octet to 1
                             gateway = f"{parts[0]}.{parts[1]}.{parts[2]}.1"
                             return gateway
                         except ValueError:
