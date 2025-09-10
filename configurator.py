@@ -1976,7 +1976,7 @@ class VOSSManagerGUI:
         ttk.Button(controls_frame, text="Clear All", command=self.clear_all_devices).pack(side=tk.LEFT, padx=10)
         
         # Create treeview for device data
-        columns = ("IP-Address", "Device", "Location", "Nick-name", "sys-id", "sys-name", "Notes")
+        columns = ("IP-Address", "Device", "Location", "Nick-name", "sys-id", "sys-name", "Notes", "VLAN Range")
         self.csv_tree = ttk.Treeview(device_frame, columns=columns, show='headings', height=10)
         
         for col in columns:
@@ -2230,7 +2230,8 @@ class VOSSManagerGUI:
                         row.get('Nick-name', ''),
                         row.get('sys-id', ''),
                         row.get('sys-name', ''),
-                        row.get('Notes', '')
+                        row.get('Notes', ''),
+                        row.get('VLAN Range', '')
                     )
                     self.csv_tree.insert('', 'end', values=values)
                     
@@ -2252,16 +2253,50 @@ class VOSSManagerGUI:
                             text="⚠ Base Config ready (Please set gateway manually)", 
                             foreground="orange"
                         )
+                # Auto-import VLANs from CSV "VLAN Range" column
+                csv_vlans = self.extract_vlans_from_csv()
+                if csv_vlans:
+                    # Prepare tuples: (vlan_id, name, isid)
+                    vlans_to_add = []
+                    for vid in sorted(csv_vlans):
+                        # Check if VLAN already exists in base tree
+                        exists = False
+                        if hasattr(self, 'base_vlan_tree'):
+                            for item in self.base_vlan_tree.get_children():
+                                values = self.base_vlan_tree.item(item, 'values')
+                                if int(values[0]) == vid:
+                                    exists = True
+                                    break
+                        if not exists:
+                            vlans_to_add.append((vid, f"VLAN {vid}", 1040000 + vid))
+                    if vlans_to_add:
+                        self.add_vlans_to_base_config(vlans_to_add)
+                        if hasattr(self, 'batch_vlan_tree'):
+                            self.sync_base_vlans_to_batch()
+
+                # Determine whether to prompt for management VLAN
+                should_prompt_mgmt = True
+                current_mgmt = self.mgmt_vlan_var.get() if hasattr(self, 'mgmt_vlan_var') else ""
+                if current_mgmt and current_mgmt.isdigit():
+                    should_prompt_mgmt = False
+                elif csv_vlans:
+                    # Use the smallest VLAN ID from CSV as default management VLAN
+                    chosen = min(csv_vlans)
+                    self.mgmt_vlan_var.set(str(chosen))
+                    should_prompt_mgmt = False
+                    # Ensure batch panel reflects any new base VLANs
+                    if hasattr(self, 'batch_vlan_tree'):
+                        self.sync_base_vlans_to_batch()
+
+                # Only prompt if nothing recognized
+                if should_prompt_mgmt:
+                    self.prompt_management_vlan()
+                else:
+                    # Final sync to ensure both panels match
+                    if hasattr(self, 'batch_vlan_tree'):
+                        self.sync_base_vlans_to_batch()
                 
-                self.prompt_management_vlan()
-                
-                detected_vlans = self.analyze_and_detect_vlans()
-                vlan_message = ""
-                if detected_vlans:
-                    vlan_message = f"\nDetected {len(detected_vlans)} VLAN(s): {', '.join(detected_vlans)}"
-                    self.prompt_vlan_addition(detected_vlans)
-                
-                messagebox.showinfo("Success", f"Loaded {len(self.csv_data)} devices from CSV{gateway_message}{vlan_message}")
+                messagebox.showinfo("Success", f"Loaded {len(self.csv_data)} devices from CSV{gateway_message}")
                 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load CSV file: {str(e)}")
@@ -2421,7 +2456,8 @@ class VOSSManagerGUI:
                 'Nick-name': values[3],
                 'sys-id': values[4],
                 'sys-name': values[5],
-                'Notes': values[6]
+                'Notes': values[6],
+                'VLAN Range': values[7] if len(values) > 7 else ''
             }
             self.csv_data.append(device_dict)
     
@@ -2594,6 +2630,22 @@ class VOSSManagerGUI:
         except Exception:
             return []
     
+    def extract_vlans_from_csv(self):
+        """Extract VLAN IDs from the CSV 'VLAN Range' column across all rows."""
+        if not self.csv_data:
+            return set()
+        vlans = set()
+        for device in self.csv_data:
+            vlan_range = (device.get('VLAN Range', '') or '').strip()
+            if not vlan_range:
+                continue
+            try:
+                parsed = self.parse_vlan_range(vlan_range)
+                vlans.update(parsed)
+            except Exception:
+                continue
+        return vlans
+
     def parse_vlan_range(self, vlan_range_str):
         """Parse VLAN range string and return list of VLAN IDs"""
         vlans = []
@@ -2636,9 +2688,11 @@ class VOSSManagerGUI:
         """Prompt user to configure management VLAN"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Management VLAN Configuration")
-        dialog.geometry("400x250")
+        dialog.geometry("480x340")
         dialog.transient(self.root)
         dialog.grab_set()
+        # Set a sensible minimum size to avoid hidden buttons on high-DPI displays
+        dialog.minsize(460, 320)
         
         # Header
         ttk.Label(dialog, text="Configure Management VLAN", 
@@ -2708,6 +2762,14 @@ class VOSSManagerGUI:
         
         ttk.Button(button_frame, text="Save Management VLAN", command=save_management_vlan).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Skip", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        
+        # Ensure window is large enough for all content
+        dialog.update_idletasks()
+        req_w = dialog.winfo_reqwidth()
+        req_h = dialog.winfo_reqheight()
+        cur_w = max(req_w + 20, 480)
+        cur_h = max(req_h + 20, 340)
+        dialog.geometry(f"{cur_w}x{cur_h}")
     
     def prompt_vlan_addition(self, detected_vlans):
         """Prompt user to add detected VLANs to base config"""
@@ -3141,37 +3203,23 @@ class VOSSManagerGUI:
         if default_vlan is None:
             default_vlan = vlans[0] if vlans else None
         
-        if port_config == "trunk" or (port_config == "auto" and len(vlans) > 1):
-            # Trunk port configuration based on your example
-            commands.append("enable")
-            commands.append("conf t")
+        if port_config == "trunk":
             commands.append(f"interface GigabitEthernet {port_range}")
             commands.append("untag-port-default-vlan enable")
             commands.append(f"default-vlan-id {default_vlan}")
             commands.append("no shutdown")
             commands.append("exit")
             
-            # Add VLAN members (excluding the default VLAN to avoid duplication)
             for vlan_id in vlans:
                 if vlan_id != default_vlan:
                     commands.append(f"vlan members add {vlan_id} {port_range}")
             
-            commands.append("wr m")
             
         else:
-            commands.append("enable")
-            commands.append("conf t")
-            commands.append(f"interface GigabitEthernet {port_range}")
-            commands.append("encapsulation dot1q")
-            commands.append("untag-port-default-vlan enable")
-            
-            # Set default VLAN
-            if default_vlan:
-                commands.append(f"default-vlan-id {default_vlan}")
-            
-            commands.append("no shutdown")
-            commands.append("exit")
-            commands.append("wr m")
+            for vlan_id in vlans:
+                    # remove vlan 1 if exists
+                    commands.append(f"vlan members remove 1 {port_range}")
+                    commands.append(f"vlan members add {vlan_id} {port_range}")            
         
         return "\n".join(commands)
     
@@ -3515,7 +3563,7 @@ class VOSSManagerGUI:
         
         ttk.Radiobutton(port_type_frame, text="Trunk", variable=port_type_var, value="trunk").pack(side=tk.LEFT, padx=5)
         ttk.Radiobutton(port_type_frame, text="Access", variable=port_type_var, value="access").pack(side=tk.LEFT, padx=5)
-        ttk.Radiobutton(port_type_frame, text="Auto", variable=port_type_var, value="auto").pack(side=tk.LEFT, padx=5)
+        # ttk.Radiobutton(port_type_frame, text="Auto", variable=port_type_var, value="auto").pack(side=tk.LEFT, padx=5)
         
         # VLAN selection
         ttk.Label(dialog, text="Select VLANs for this port range:").pack(anchor=tk.W, padx=10, pady=(10, 5))
@@ -3531,8 +3579,9 @@ class VOSSManagerGUI:
         
         vlan_vars = {}
         default_vlan_var = tk.StringVar()
-        vlan_checkboxes = {}  # Store references to checkboxes for enabling/disabling
-        radio_buttons = {}  # Store references to radio buttons for enabling/disabling
+        vlan_checkboxes = {}  # Store references to VLAN selection checkboxes for enabling/disabling
+        default_selection_vars = {}  # Store BooleanVars for default selection per VLAN
+        default_checkbuttons = {}  # Store references to default selection checkbuttons
         
         def update_vlan_restrictions():
             """Update VLAN checkbox and radio button states based on port type and current selections"""
@@ -3555,13 +3604,18 @@ class VOSSManagerGUI:
                 for checkbox in vlan_checkboxes.values():
                     checkbox.config(state='normal')
             
-            # Update radio button states - enable for selected VLANs, disable for unselected
+            # Update default checkbox states - enable for selected VLANs, disable for unselected
             for vlan_id, var in vlan_vars.items():
-                if vlan_id in radio_buttons:
+                if vlan_id in default_checkbuttons:
                     if var.get():
-                        radio_buttons[vlan_id].config(state='normal')
+                        default_checkbuttons[vlan_id].config(state='normal')
                     else:
-                        radio_buttons[vlan_id].config(state='disabled')
+                        # If disabling and this VLAN is currently default, clear it
+                        if default_selection_vars.get(vlan_id) and default_selection_vars[vlan_id].get():
+                            default_selection_vars[vlan_id].set(False)
+                            if default_vlan_var.get() == str(vlan_id):
+                                default_vlan_var.set("")
+                        default_checkbuttons[vlan_id].config(state='disabled')
         
         # Trace port type changes
         port_type_var.trace('w', lambda *args: update_vlan_restrictions())
@@ -3578,27 +3632,45 @@ class VOSSManagerGUI:
             checkbox.pack(side=tk.LEFT)
             vlan_checkboxes[vlan_id] = checkbox
             
-            # Default VLAN radio button
-            def create_default_radio(vid, frame):
-                def update_default():
-                    if var.get():
-                        default_vlan_var.set(str(vid))
-                    elif default_vlan_var.get() == str(vid):
-                        default_vlan_var.set("")
+            # Default VLAN checkbox (single-select behavior enforced)
+            def create_default_checkbox(vid, frame, vlan_var):
+                default_var = tk.BooleanVar(value=False)
                 
-                var.trace('w', lambda *args: update_default())
-                return ttk.Radiobutton(frame, text="Default", variable=default_vlan_var, 
-                                     value=str(vid), command=update_default)
+                def on_toggle():
+                    if default_var.get():
+                        # Uncheck all other default checkboxes
+                        for other_id, other_var in default_selection_vars.items():
+                            if other_id != vid and other_var.get():
+                                other_var.set(False)
+                        default_vlan_var.set(str(vid))
+                    else:
+                        if default_vlan_var.get() == str(vid):
+                            default_vlan_var.set("")
+                
+                # Keep default selection in sync with VLAN selection
+                def on_vlan_select_change(*_):
+                    if not vlan_var.get():
+                        # If VLAN deselected, also clear default for this VLAN
+                        if default_var.get():
+                            default_var.set(False)
+                        if default_vlan_var.get() == str(vid):
+                            default_vlan_var.set("")
+                
+                vlan_var.trace('w', on_vlan_select_change)
+                btn = ttk.Checkbutton(frame, text="Default", variable=default_var, command=on_toggle)
+                default_selection_vars[vid] = default_var
+                return btn
             
-            default_radio = create_default_radio(vlan_id, vlan_item_frame)
-            default_radio.pack(side=tk.LEFT, padx=(20, 0))
-            radio_buttons[vlan_id] = default_radio  # Store reference for enabling/disabling
+            default_chk = create_default_checkbox(vlan_id, vlan_item_frame, var)
+            default_chk.pack(side=tk.LEFT, padx=(20, 0))
+            default_checkbuttons[vlan_id] = default_chk  # Store reference for enabling/disabling
             
             if not var.get():
-                default_radio.config(state='disabled')
+                default_chk.config(state='disabled')
             
-        # Trace VLAN selection changes for access port restrictions
-        var.trace('w', lambda *args: update_vlan_restrictions())
+        # Trace VLAN selection changes for access port restrictions (apply to all)
+        for _vid, _v in vlan_vars.items():
+            _v.trace('w', lambda *args: update_vlan_restrictions())
         
         # Apply initial restrictions based on current port type
         update_vlan_restrictions()
@@ -3722,8 +3794,9 @@ class VOSSManagerGUI:
         
         vlan_vars = {}
         default_vlan_var = tk.StringVar()
-        vlan_checkboxes = {}  # Store references to checkboxes for enabling/disabling
-        radio_buttons = {}  # Store references to radio buttons for enabling/disabling
+        vlan_checkboxes = {}  # Store references to VLAN selection checkboxes for enabling/disabling
+        default_selection_vars = {}  # Store BooleanVars for default selection per VLAN
+        default_checkbuttons = {}  # Store references to default selection checkbuttons
         current_vlans = config_to_edit.get('vlans', [])
         current_default = config_to_edit.get('default_vlan', '')
         
@@ -3748,13 +3821,18 @@ class VOSSManagerGUI:
                 for checkbox in vlan_checkboxes.values():
                     checkbox.config(state='normal')
             
-            # Update radio button states - enable for selected VLANs, disable for unselected
+            # Update default checkbox states - enable for selected VLANs, disable for unselected
             for vlan_id, var in vlan_vars.items():
-                if vlan_id in radio_buttons:
+                if vlan_id in default_checkbuttons:
                     if var.get():
-                        radio_buttons[vlan_id].config(state='normal')
+                        default_checkbuttons[vlan_id].config(state='normal')
                     else:
-                        radio_buttons[vlan_id].config(state='disabled')
+                        # If disabling and this VLAN is currently default, clear it
+                        if default_selection_vars.get(vlan_id) and default_selection_vars[vlan_id].get():
+                            default_selection_vars[vlan_id].set(False)
+                            if default_vlan_var.get() == str(vlan_id):
+                                default_vlan_var.set("")
+                        default_checkbuttons[vlan_id].config(state='disabled')
         
         # Trace port type changes
         port_type_var.trace('w', lambda *args: update_vlan_restrictions())
@@ -3771,29 +3849,46 @@ class VOSSManagerGUI:
             checkbox.pack(side=tk.LEFT)
             vlan_checkboxes[vlan_id] = checkbox
             
-            # Default VLAN radio button
-            def create_default_radio(vid, frame):
-                def update_default():
-                    if var.get():
-                        default_vlan_var.set(str(vid))
-                    elif default_vlan_var.get() == str(vid):
-                        default_vlan_var.set("")
+            # Default VLAN checkbox (single-select behavior enforced)
+            def create_default_checkbox(vid, frame, vlan_var):
+                default_var = tk.BooleanVar(value=(vid == current_default))
                 
-                var.trace('w', lambda *args: update_default())
-                return ttk.Radiobutton(frame, text="Default", variable=default_vlan_var, 
-                                     value=str(vid), command=update_default)
+                def on_toggle():
+                    if default_var.get():
+                        # Uncheck all other default checkboxes
+                        for other_id, other_var in default_selection_vars.items():
+                            if other_id != vid and other_var.get():
+                                other_var.set(False)
+                        default_vlan_var.set(str(vid))
+                    else:
+                        if default_vlan_var.get() == str(vid):
+                            default_vlan_var.set("")
+                
+                # Keep default selection in sync with VLAN selection
+                def on_vlan_select_change(*_):
+                    if not vlan_var.get():
+                        # If VLAN deselected, also clear default for this VLAN
+                        if default_var.get():
+                            default_var.set(False)
+                        if default_vlan_var.get() == str(vid):
+                            default_vlan_var.set("")
+                
+                vlan_var.trace('w', on_vlan_select_change)
+                btn = ttk.Checkbutton(frame, text="Default", variable=default_var, command=on_toggle)
+                default_selection_vars[vid] = default_var
+                return btn
             
-            default_radio = create_default_radio(vlan_id, vlan_item_frame)
-            default_radio.pack(side=tk.LEFT, padx=(20, 0))
-            radio_buttons[vlan_id] = default_radio  # Store reference for enabling/disabling
+            default_chk = create_default_checkbox(vlan_id, vlan_item_frame, var)
+            default_chk.pack(side=tk.LEFT, padx=(20, 0))
+            default_checkbuttons[vlan_id] = default_chk  # Store reference for enabling/disabling
             
             if not var.get():
-                default_radio.config(state='disabled')
+                default_chk.config(state='disabled')
             
             # Trace VLAN selection changes for access port restrictions
             var.trace('w', lambda *args: update_vlan_restrictions())
         
-        # Set current default VLAN
+        # Set current default VLAN (sync with checkbox state)
         if current_default:
             default_vlan_var.set(str(current_default))
         
@@ -3890,7 +3985,8 @@ class VOSSManagerGUI:
             'Nick-name': values[3],
             'sys-id': values[4],
             'sys-name': values[5],
-            'Notes': values[6]
+            'Notes': values[6],
+            'VLAN Range': values[7]
         }
         
         # Store current device
@@ -4109,7 +4205,7 @@ class VOSSManagerGUI:
         file_path = filedialog.asksaveasfilename(
             title="Save Device Configuration",
             defaultextension=".txt",
-            initialvalue=default_filename,
+            initialfile=default_filename,
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
         )
         
@@ -4325,28 +4421,11 @@ class VOSSManagerGUI:
                         failed_devices.append(f"{device_name}: Missing required fields: {', '.join(missing_fields)}")
                         continue
                     
-                    # Apply substitutions based on template source
-                    if self.template_source_var.get() == "base_config":
-                        # For base config templates, do direct string replacement
-                        config_content = template_content
-                        config_content = config_content.replace('$sys-name$', device.get('sys-name', ''))
-                        config_content = config_content.replace('$ip-address$', device.get('IP-Address', ''))
-                        config_content = config_content.replace('$location$', device.get('Location', ''))
-                        config_content = config_content.replace('$nick-name$', device.get('Nick-name', ''))
-                        config_content = config_content.replace('$sys-id$', device.get('sys-id', ''))
-                    else:
-                        # For file templates, use regex replacement (PowerShell script format)
-                        substitutions = {
-                            '\\$sys-name\\$': device.get('sys-name', ''),
-                            '\\$ip-address\\$': device.get('IP-Address', ''),
-                            '\\$location\\$': device.get('Location', ''),
-                            '\\$nick-name\\$': device.get('Nick-name', ''),
-                            '\\$sys-id\\$': device.get('sys-id', '')
-                        }
-                        
-                        config_content = template_content
-                        for pattern, replacement in substitutions.items():
-                            config_content = re.sub(pattern, replacement, config_content)
+                    # Generate full device config (includes VLAN and port configs if present)
+                    config_content = self.generate_device_config(device)
+                    if not config_content:
+                        failed_devices.append(f"{device_name}: Failed to generate configuration")
+                        continue
                     
                     # Generate output filename (sanitize filename)
                     safe_device_name = re.sub(r'[^\w\-_.]', '_', device_name)

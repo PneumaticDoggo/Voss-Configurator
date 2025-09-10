@@ -22,7 +22,7 @@ A comprehensive GUI tool for configuring and managing Extreme Networks VOSS swit
 ## Installation
 
 1. Download the voss_configurator.zip:
-   Download & Extract voss_configurator.zip (includes the required python installer for windows) or clone repository
+   Download & Extract voss-configurator.zip (includes the required python installer for windows) or clone repository
    ```
    git clone https://github.com/PneumaticDoggo/Voss-Configurator.git
    cd Voss-Configurator
