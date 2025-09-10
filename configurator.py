@@ -356,7 +356,7 @@ class ConfigGenerator:
 class VOSSManagerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Extreme VOSS Switch Manager")
+        self.root.title(f"Extreme VOSS Switch Manager v{__version__}")
         self.root.geometry("1400x900")
         
         self.conn_mgr = ConnectionManager()
