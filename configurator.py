@@ -16,6 +16,10 @@ import re
 import hashlib
 import random
 import csv
+import urllib.request
+import webbrowser
+import shutil
+import tempfile
 import os
 from datetime import datetime
 from dataclasses import dataclass, asdict
@@ -383,6 +387,84 @@ class VOSSManagerGUI:
         
         # Batch Configuration Tab
         self.create_batch_tab()
+
+        # Check for updates in the background shortly after startup
+        self.root.after(1000, self.check_for_updates_safely)
+
+    def check_for_updates_safely(self):
+        try:
+            self.check_for_updates()
+        except Exception:
+            pass
+
+    def check_for_updates(self):
+        """Check GitHub raw configurator.py for updates and auto-update if available."""
+        try:
+            github_raw_url = (
+                "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/configurator.py"
+            )
+            with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
+                latest_bytes = resp.read()
+            latest_hash = hashlib.sha256(latest_bytes).hexdigest()
+
+            # Read current file bytes
+            try:
+                with open(__file__, "rb") as f:
+                    current_bytes = f.read()
+                current_hash = hashlib.sha256(current_bytes).hexdigest()
+            except Exception:
+                current_hash = ""
+
+            if current_hash and latest_hash == current_hash:
+                return  # Up to date
+
+            # Update available - proceed with auto-update
+            self.perform_auto_update(latest_bytes)
+        except Exception:
+            # Silently ignore network errors
+            pass
+
+    def perform_auto_update(self, latest_bytes):
+        """Safely download and prepare the latest version for next restart."""
+        try:
+            # Create backup of current file
+            current_file = __file__
+            backup_file = current_file + ".backup"
+            shutil.copy2(current_file, backup_file)
+
+            # Write new version to temp file first
+            with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.py') as temp_file:
+                temp_file.write(latest_bytes)
+                temp_path = temp_file.name
+
+            # Validate the downloaded file (basic Python syntax check)
+            try:
+                with open(temp_path, 'r', encoding='utf-8') as f:
+                    compile(f.read(), temp_path, 'exec')
+            except SyntaxError:
+                # Invalid Python file, clean up and abort
+                os.unlink(temp_path)
+                return
+
+            # Replace current file with new version
+            shutil.move(temp_path, current_file)
+
+            # Show success message
+            messagebox.showinfo(
+                "Update Complete",
+                "VOSS Configurator has been updated to the latest version!\n\n"
+                "The update will take effect when you restart the application.\n\n"
+                f"Backup saved as: {os.path.basename(backup_file)}"
+            )
+
+        except Exception as e:
+            # If update fails, show error but don't crash the app
+            messagebox.showerror(
+                "Update Failed",
+                f"Failed to update VOSS Configurator:\n{str(e)}\n\n"
+                "You can manually download the latest version from:\n"
+                "https://github.com/PneumaticDoggo/Voss-Configurator"
+            )
         
     def create_base_config_tab(self):
         """Comprehensive configuration builder tab"""
