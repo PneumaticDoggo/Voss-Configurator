@@ -25,8 +25,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional, Tuple
 
-# Application version. Update this when publishing a new release.
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 @dataclass
 class VLANConfig:
@@ -168,13 +167,11 @@ class ConfigGenerator:
             ""
         ])
         
-        # Basic System Configuration
         lines.extend([
             f'hostname "{config.hostname}"',
             ""
         ])
         
-        # Domain and DNS Configuration
         if config.domain_name:
             lines.append(f'ip domain-name {config.domain_name}')
             
@@ -184,23 +181,19 @@ class ConfigGenerator:
         if config.domain_name or config.name_servers:
             lines.append("")
         
-        # Timezone Configuration
         if config.timezone:
             lines.extend([
                 f'clock timezone {config.timezone}',
                 ""
             ])
         
-        # SNMP Configuration
         lines.extend([
             f'snmp-server name {config.hostname}',
             f'snmp-server location "{config.snmp_location}"',
             ""
         ])
         
-        # VLAN Configuration
         if config.vlans:
-            # Create VLANs first
             for vlan in config.vlans:
                 if vlan.name:
                     lines.append(f'vlan create {vlan.vlan_id} name "{vlan.name}" type port-mstprstp 0')
@@ -214,7 +207,6 @@ class ConfigGenerator:
             
             lines.append("")
         
-        # Management Configuration
         mgmt_vlan = config.vlans[0].vlan_id if config.vlans else 1
         lines.extend([
             "# Management Configuration",
@@ -226,7 +218,6 @@ class ConfigGenerator:
             ""
         ])
         
-        # ISIS Configuration (SPB-M Fabric)
         if config.enable_isis and config.system_id and config.nick_name:
             lines.extend([
                 "# ISIS SPB-M Configuration",
@@ -243,7 +234,6 @@ class ConfigGenerator:
                 ""
             ])
         
-        # Remote Access Configuration
         if config.enable_ssh:
             lines.extend([
                 "# SSH Configuration",
@@ -258,14 +248,12 @@ class ConfigGenerator:
                 ""
             ])
         
-        # NTP Configuration
         if config.ntp_servers:
             lines.append("# NTP Configuration")
             for ntp_server in config.ntp_servers:
                 lines.append(f"ntp server {ntp_server}")
             lines.append("")
         
-        # SNMP Security Configuration
         if config.snmp_host:
             lines.extend([
                 "# SNMP Security Configuration",
@@ -277,7 +265,6 @@ class ConfigGenerator:
                 ""
             ])
         
-        # Final Configuration
         lines.extend([
             "# Disable TFTP Server",
             "no boot config flags tftpd",
@@ -372,26 +359,19 @@ class VOSSManagerGUI:
         self.root.title("Extreme VOSS Switch Manager")
         self.root.geometry("1400x900")
         
-        # Connection Manager
         self.conn_mgr = ConnectionManager()
         
-        # Create notebook for tabs
         self.notebook = ttk.Notebook(root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Create Base Config Tab (New comprehensive tab)
         self.create_base_config_tab()
         
-        # Configuration Generator Tab (Simplified)
         self.create_config_tab()
         
-        # Live Terminal Tab (Enhanced with Serial)
         self.create_terminal_tab()
         
-        # Batch Configuration Tab
         self.create_batch_tab()
 
-        # Check for updates in the background shortly after startup
         self.root.after(1000, self.check_for_updates_safely)
 
     def check_for_updates_safely(self):
@@ -400,7 +380,6 @@ class VOSSManagerGUI:
         except Exception:
             pass
 
-    # --- Version helpers ---
     def _parse_version(self, version_str: str) -> Tuple[int, ...]:
         parts = re.findall(r"\d+", version_str or "")
         if not parts:
@@ -418,9 +397,8 @@ class VOSSManagerGUI:
                         return line
         except Exception:
             pass
-        # Fallback to embedded __version__
         try:
-            return __version__  # type: ignore[name-defined]
+            return __version__ 
         except Exception:
             return "0.0.0"
 
@@ -468,7 +446,6 @@ class VOSSManagerGUI:
                 current_hash = ""
 
             if not current_hash or latest_hash != current_hash:
-                # Ask user for permission to update (fallback case)
                 if self.prompt_for_update("current", "latest"):
                     self.perform_auto_update(latest_bytes)
         except Exception:
@@ -488,7 +465,6 @@ class VOSSManagerGUI:
             )
             return result
         except Exception:
-            # If dialog fails, default to not updating
             return False
 
     def perform_auto_update(self, latest_bytes):
@@ -531,7 +507,6 @@ class VOSSManagerGUI:
         base_frame = ttk.Frame(self.notebook)
         self.notebook.add(base_frame, text="Create Base Config")
         
-        # Create main scrollable frame
         canvas = tk.Canvas(base_frame)
         scrollbar = ttk.Scrollbar(base_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
@@ -544,19 +519,15 @@ class VOSSManagerGUI:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
-        # Pack scrollable components
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # Bind mousewheel
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
         
-        # Main content in scrollable frame
         main_frame = scrollable_frame
         
-        # === BASIC SYSTEM CONFIGURATION ===
         system_frame = ttk.LabelFrame(main_frame, text="Basic System Configuration", padding=10)
         system_frame.pack(fill=tk.X, padx=5, pady=5)
         
