@@ -25,6 +25,9 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional, Tuple
 
+# Application version. Update this when publishing a new release.
+__version__ = "0.1.0"
+
 @dataclass
 class VLANConfig:
     vlan_id: int
@@ -397,9 +400,59 @@ class VOSSManagerGUI:
         except Exception:
             pass
 
-    def check_for_updates(self):
-        """Check GitHub raw configurator.py for updates and auto-update if available."""
+    # --- Version helpers ---
+    def _parse_version(self, version_str: str) -> Tuple[int, ...]:
+        parts = re.findall(r"\d+", version_str or "")
+        if not parts:
+            return (0,)
+        return tuple(int(p) for p in parts[:4])
+
+    def _read_local_version(self) -> str:
         try:
+            here = os.path.dirname(__file__)
+            version_path = os.path.join(here, "VERSION")
+            if os.path.isfile(version_path):
+                with open(version_path, "r", encoding="utf-8") as f:
+                    line = f.readline().strip()
+                    if line:
+                        return line
+        except Exception:
+            pass
+        # Fallback to embedded __version__
+        try:
+            return __version__  # type: ignore[name-defined]
+        except Exception:
+            return "0.0.0"
+
+    def _fetch_remote_version(self, timeout: int = 8) -> Optional[str]:
+        try:
+            version_url = (
+                "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/VERSION"
+            )
+            with urllib.request.urlopen(version_url, timeout=timeout) as resp:
+                text = resp.read().decode("utf-8", errors="ignore").strip()
+                if text:
+                    return text.splitlines()[0].strip()
+        except Exception:
+            return None
+
+    def check_for_updates(self):
+        """Check GitHub for a newer version; prefer VERSION file, fallback to hash compare."""
+        try:
+            remote_version = self._fetch_remote_version()
+            if remote_version is not None:
+                local_version = self._read_local_version()
+                if self._parse_version(remote_version) > self._parse_version(local_version):
+                    # Ask user for permission to update
+                    if self.prompt_for_update(local_version, remote_version):
+                        github_raw_url = (
+                            "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/configurator.py"
+                        )
+                        with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
+                            latest_bytes = resp.read()
+                        self.perform_auto_update(latest_bytes)
+                return
+
             github_raw_url = (
                 "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/configurator.py"
             )
@@ -407,7 +460,6 @@ class VOSSManagerGUI:
                 latest_bytes = resp.read()
             latest_hash = hashlib.sha256(latest_bytes).hexdigest()
 
-            # Read current file bytes
             try:
                 with open(__file__, "rb") as f:
                     current_bytes = f.read()
@@ -415,41 +467,50 @@ class VOSSManagerGUI:
             except Exception:
                 current_hash = ""
 
-            if current_hash and latest_hash == current_hash:
-                return  # Up to date
-
-            # Update available - proceed with auto-update
-            self.perform_auto_update(latest_bytes)
+            if not current_hash or latest_hash != current_hash:
+                # Ask user for permission to update (fallback case)
+                if self.prompt_for_update("current", "latest"):
+                    self.perform_auto_update(latest_bytes)
         except Exception:
-            # Silently ignore network errors
             pass
+
+    def prompt_for_update(self, current_version, new_version):
+        """Ask user if they want to update to the newer version."""
+        try:
+            result = messagebox.askyesno(
+                "Update Available",
+                f"A newer version of VOSS Configurator is available!\n\n"
+                f"Current version: {current_version}\n"
+                f"New version: {new_version}\n\n"
+                f"Would you like to update now?\n\n"
+                f"Note: The application will restart after the update.",
+                icon='question'
+            )
+            return result
+        except Exception:
+            # If dialog fails, default to not updating
+            return False
 
     def perform_auto_update(self, latest_bytes):
         """Safely download and prepare the latest version for next restart."""
         try:
-            # Create backup of current file
             current_file = __file__
             backup_file = current_file + ".backup"
             shutil.copy2(current_file, backup_file)
 
-            # Write new version to temp file first
             with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.py') as temp_file:
                 temp_file.write(latest_bytes)
                 temp_path = temp_file.name
 
-            # Validate the downloaded file (basic Python syntax check)
             try:
                 with open(temp_path, 'r', encoding='utf-8') as f:
                     compile(f.read(), temp_path, 'exec')
             except SyntaxError:
-                # Invalid Python file, clean up and abort
                 os.unlink(temp_path)
                 return
 
-            # Replace current file with new version
             shutil.move(temp_path, current_file)
 
-            # Show success message
             messagebox.showinfo(
                 "Update Complete",
                 "VOSS Configurator has been updated to the latest version!\n\n"
@@ -458,7 +519,6 @@ class VOSSManagerGUI:
             )
 
         except Exception as e:
-            # If update fails, show error but don't crash the app
             messagebox.showerror(
                 "Update Failed",
                 f"Failed to update VOSS Configurator:\n{str(e)}\n\n"

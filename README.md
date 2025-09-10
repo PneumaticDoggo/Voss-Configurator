@@ -12,6 +12,7 @@ A comprehensive GUI tool for configuring and managing Extreme Networks VOSS swit
 - **Batch Template Generation**: Generate base templates including vlan creation, i-sid to vlan association and interface configs. 
 - **Auto detection of the default gateway for batch configs**: The Voss configurator will automatically assign the default gateway where possible, using the IP address of the switch from a loaded CSV or manual device input.
 - **Template System**: Save and load configuration templates
+- **Auto Update**: The program will now automatically check for available updates and apply those automatically.
 
 ## Requirements
 
@@ -22,7 +23,7 @@ A comprehensive GUI tool for configuring and managing Extreme Networks VOSS swit
 ## Installation
 
 1. Download the voss_configurator.zip:
-   Download & Extract voss-configurator.zip (includes the required python installer for windows) or clone repository
+   Download or clone repository
    ```
    git clone https://github.com/PneumaticDoggo/Voss-Configurator.git
    cd Voss-Configurator
