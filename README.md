@@ -8,7 +8,9 @@ A comprehensive GUI tool for configuring and managing Extreme Networks VOSS swit
 - **Quick Configuration**: Rapidly generate basic configurations for common scenarios
 - **Live Terminal**: Connect to devices via SSH or Serial and execute commands
 - **Live Configuration**: Easily configure VLANs, interfaces, and other settings on connected devices
-- **Batch Configuration**: Apply configuration files to devices in bulk
+- **Batch Configuration**: Apply configuration to switches in bulk
+- **Batch Template Generation**: Generate base templates including vlan creation, i-sid to vlan association and interface configs. 
+- **Auto detection of the default gateway for batch configs**: The Voss configurator will automatically assign the default gateway where possible, using the IP address of the switch from a loaded CSV or manual device input.
 - **Template System**: Save and load configuration templates
 
 ## Requirements
@@ -49,6 +51,20 @@ The Base Configuration tab allows you to create comprehensive switch configurati
 6. Set SNMP parameters
 7. Generate and save the configuration
 
+### Batch Config
+
+The batch config tab allows you to create the same comprehensive switch configurations as the base config but with the following additions:
+
+**To configure snmp values,SSH settings and NTP settings across the batch configs please input the values into the relevant text input boxes in the base config tab first**
+
+1. Either enter devices into the GUI or add them to the configurator in bulk by using predefined parameters like management IP, Device name,snmp location, spbm nick name, spbm system ID, management vlan ID
+2. Preview the configs for each individual switch
+3. Select and add vlans to either all switches or only selected ones 
+4. Auto assign all entered vlan IDs to all switches
+5. Auto gateway recognition (Input can be changed by changeing the value in the Gateway field on the Base config tab)
+6. Generate single configs before generating them all simply by clicking the 'Apply to selected' button on the selected switch in the VLAN&Port Config tab
+
+
 ### Live Terminal
 
 Connect to and manage switches in real-time:
@@ -72,9 +88,10 @@ When connected to a device, quickly configure:
 
 Apply saved configuration files to devices:
 
-1. Connect to a device in the Terminal tab
-2. Select a configuration file
-3. Apply the configuration to the device
+1. Create base or batch config
+2. Connect to a device in the Terminal tab
+3. Select a configuration file
+4. Apply the configuration to the device
 
 ## Acknowledgments
 
