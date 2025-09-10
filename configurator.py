@@ -415,25 +415,25 @@ class VOSSManagerGUI:
             return None
 
     def check_for_updates(self):
-        """Check GitHub for a newer version; prefer VERSION file, fallback to hash compare."""
+        """Check GitHub for a newer version"""
         try:
             remote_version = self._fetch_remote_version()
-            if remote_version is not None:
-                local_version = self._read_local_version()
-                if self._parse_version(remote_version) > self._parse_version(local_version):
-                    # Ask user for permission to update
-                    if self.prompt_for_update(local_version, remote_version):
-                        github_raw_url = (
-                            "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/configurator.py"
-                        )
-                        with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
-                            latest_bytes = resp.read()
-                        self.perform_auto_update(latest_bytes)
-                return
+            local_version = self._read_local_version()
 
             github_raw_url = (
                 "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/configurator.py"
             )
+
+            # If remote VERSION is available and newer, prompt to update
+            if remote_version is not None and \
+               self._parse_version(remote_version) > self._parse_version(local_version):
+                with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
+                    latest_bytes = resp.read()
+                if self.prompt_for_update(local_version, remote_version):
+                    self.perform_auto_update(latest_bytes)
+                return
+
+            # Also perform a hash compare as a secondary check (e.g., if VERSION wasn't bumped)
             with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
                 latest_bytes = resp.read()
             latest_hash = hashlib.sha256(latest_bytes).hexdigest()
@@ -446,7 +446,10 @@ class VOSSManagerGUI:
                 current_hash = ""
 
             if not current_hash or latest_hash != current_hash:
-                if self.prompt_for_update("current", "latest"):
+                # Prefer showing versions if we have them, otherwise generic labels
+                cur_label = local_version if remote_version is not None else "current"
+                new_label = remote_version if remote_version is not None else "latest"
+                if self.prompt_for_update(cur_label, new_label):
                     self.perform_auto_update(latest_bytes)
         except Exception:
             pass
