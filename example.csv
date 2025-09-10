@@ -1,0 +1,3 @@
+IP-Address,Device,Location,ISIS Nick-name,System ID,Hostname,Site,Notes,Management VLAN,Gateway IP,SNMP Host,SNMP Community,SNMP Group,SNMP User,Auth Password,Privacy Password
+10.0.0.53,DatactrSW-01,Data Center,e.25.53,02e0.0122.0053,DatactrSW-01,Site A,Main switch,100,10.0.0.254,10.0.0.53,public,SNMPGroup,snmpuser,AAuthPass123,PrivPass456
+192.168.1.1,OfficeSW-01,Office,e.25.54,02e0.0122.0054,OfficeSW-01,Site B,Office switch,200,192.168.1.254,192.168.1.100,public,SNMPGroup,snmpuser,AuthPass789,PrivPass789

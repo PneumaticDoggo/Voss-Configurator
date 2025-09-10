@@ -25,7 +25,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional, Tuple
 
-__version__ = "0.1.1"
+__version__ = "0.2.1"
 
 @dataclass
 class VLANConfig:
@@ -62,6 +62,37 @@ class SwitchConfig:
     def __post_init__(self):
         if self.vlans is None:
             self.vlans = []
+        if self.ntp_servers is None:
+            self.ntp_servers = []
+        if self.name_servers is None:
+            self.name_servers = []
+
+@dataclass
+class SiteConfig:
+    name: str
+    gateway: str = ""
+    mgmt_ip: str = ""
+    mgmt_mask: int = 24
+    hostname: str = ""
+    snmp_location: str = ""
+    system_id: str = ""
+    nick_name: str = ""
+    domain_name: str = ""
+    timezone: str = ""
+    snmp_community: str = "public"
+    snmp_host: str = ""
+    snmp_group: str = "SNMPGroup"
+    snmp_user: str = "snmpuser"
+    snmp_auth_password: str = "Auth_Password123"
+    snmp_priv_password: str = "Priv_Password123"
+    enable_ssh: bool = True
+    enable_telnet: bool = False
+    enable_isis: bool = True
+    isis_area: str = "49.0000"
+    ntp_servers: List[str] = None
+    name_servers: List[str] = None
+    
+    def __post_init__(self):
         if self.ntp_servers is None:
             self.ntp_servers = []
         if self.name_servers is None:
@@ -374,6 +405,478 @@ class VOSSManagerGUI:
 
         self.root.after(1000, self.check_for_updates_safely)
 
+    def create_default_batch_site(self):
+        """Create the default site for batch config"""
+        default_site = SiteConfig(name="Default Site")
+        self.batch_sites["Default Site"] = default_site
+        self.current_batch_site = "Default Site"
+        self.update_batch_site_combos()
+        self.update_batch_site_info()
+
+    def create_batch_site(self):
+        """Create a new site for batch config"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Create New Site")
+        dialog.geometry("400x250")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 50, self.root.winfo_rooty() + 50))
+        
+        ttk.Label(dialog, text="Site Name:").pack(pady=10)
+        site_name_var = tk.StringVar()
+        site_name_entry = ttk.Entry(dialog, textvariable=site_name_var, width=30)
+        site_name_entry.pack(pady=5)
+        site_name_entry.focus()
+        
+        ttk.Label(dialog, text="Gateway IP:").pack(pady=5)
+        gateway_var = tk.StringVar()
+        gateway_entry = ttk.Entry(dialog, textvariable=gateway_var, width=30)
+        gateway_entry.pack(pady=5)
+        
+        ttk.Label(dialog, text="Management IP (optional):").pack(pady=5)
+        mgmt_ip_var = tk.StringVar()
+        mgmt_ip_entry = ttk.Entry(dialog, textvariable=mgmt_ip_var, width=30)
+        mgmt_ip_entry.pack(pady=5)
+        
+        ttk.Label(dialog, text="SNMP Location (optional):").pack(pady=5)
+        location_var = tk.StringVar()
+        location_entry = ttk.Entry(dialog, textvariable=location_var, width=30)
+        location_entry.pack(pady=5)
+        
+        def create_site():
+            site_name = site_name_var.get().strip()
+            if not site_name:
+                messagebox.showerror("Error", "Please enter a site name")
+                return
+            
+            if site_name in self.batch_sites:
+                messagebox.showerror("Error", "A site with this name already exists")
+                return
+            
+            # Create new site
+            new_site = SiteConfig(
+                name=site_name,
+                gateway=gateway_var.get().strip(),
+                mgmt_ip=mgmt_ip_var.get().strip(),
+                snmp_location=location_var.get().strip()
+            )
+            self.batch_sites[site_name] = new_site
+            self.current_batch_site = site_name
+            self.update_batch_site_combos()
+            self.update_batch_site_info()
+            dialog.destroy()
+        
+        ttk.Button(dialog, text="Create Site", command=create_site).pack(pady=20)
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=5)
+        
+        # Bind Enter key to create site
+        dialog.bind('<Return>', lambda e: create_site())
+
+    def edit_batch_site(self):
+        """Edit the current batch site settings"""
+        if not self.current_batch_site or self.current_batch_site not in self.batch_sites:
+            messagebox.showwarning("Warning", "Please select a site to edit")
+            return
+        
+        site = self.batch_sites[self.current_batch_site]
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit Site")
+        dialog.geometry("450x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 50, self.root.winfo_rooty() + 50))
+        
+        # Create main frame with scrollbar
+        main_frame = ttk.Frame(dialog)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Site Name
+        ttk.Label(main_frame, text="Site Name:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        site_name_var = tk.StringVar(value=site.name)
+        site_name_entry = ttk.Entry(main_frame, textvariable=site_name_var, width=30)
+        site_name_entry.grid(row=0, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # Gateway
+        ttk.Label(main_frame, text="Gateway IP:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        gateway_var = tk.StringVar(value=site.gateway)
+        gateway_entry = ttk.Entry(main_frame, textvariable=gateway_var, width=30)
+        gateway_entry.grid(row=1, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # Management IP
+        ttk.Label(main_frame, text="Management IP:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        mgmt_ip_var = tk.StringVar(value=site.mgmt_ip)
+        mgmt_ip_entry = ttk.Entry(main_frame, textvariable=mgmt_ip_var, width=30)
+        mgmt_ip_entry.grid(row=2, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # Management Mask
+        ttk.Label(main_frame, text="Management Mask:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        mgmt_mask_var = tk.StringVar(value=str(site.mgmt_mask))
+        mgmt_mask_entry = ttk.Entry(main_frame, textvariable=mgmt_mask_var, width=30)
+        mgmt_mask_entry.grid(row=3, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # SNMP Location
+        ttk.Label(main_frame, text="SNMP Location:").grid(row=4, column=0, sticky=tk.W, pady=5)
+        location_var = tk.StringVar(value=site.snmp_location)
+        location_entry = ttk.Entry(main_frame, textvariable=location_var, width=30)
+        location_entry.grid(row=4, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # SNMP Community
+        ttk.Label(main_frame, text="SNMP Community:").grid(row=5, column=0, sticky=tk.W, pady=5)
+        snmp_community_var = tk.StringVar(value=site.snmp_community)
+        snmp_community_entry = ttk.Entry(main_frame, textvariable=snmp_community_var, width=30)
+        snmp_community_entry.grid(row=5, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # SNMP Host
+        ttk.Label(main_frame, text="SNMP Host:").grid(row=6, column=0, sticky=tk.W, pady=5)
+        snmp_host_var = tk.StringVar(value=site.snmp_host)
+        snmp_host_entry = ttk.Entry(main_frame, textvariable=snmp_host_var, width=30)
+        snmp_host_entry.grid(row=6, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # Timezone
+        ttk.Label(main_frame, text="Timezone:").grid(row=7, column=0, sticky=tk.W, pady=5)
+        timezone_var = tk.StringVar(value=site.timezone)
+        timezone_entry = ttk.Entry(main_frame, textvariable=timezone_var, width=30)
+        timezone_entry.grid(row=7, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # NTP Servers
+        ttk.Label(main_frame, text="NTP Servers:").grid(row=8, column=0, sticky=tk.W, pady=5)
+        ntp_var = tk.StringVar(value=', '.join(site.ntp_servers))
+        ntp_entry = ttk.Entry(main_frame, textvariable=ntp_var, width=30)
+        ntp_entry.grid(row=8, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # DNS Servers
+        ttk.Label(main_frame, text="DNS Servers:").grid(row=9, column=0, sticky=tk.W, pady=5)
+        dns_var = tk.StringVar(value=', '.join(site.name_servers))
+        dns_entry = ttk.Entry(main_frame, textvariable=dns_var, width=30)
+        dns_entry.grid(row=9, column=1, sticky=tk.W, pady=5, padx=(10, 0))
+        
+        # ISIS Settings
+        isis_frame = ttk.LabelFrame(main_frame, text="ISIS Settings", padding=5)
+        isis_frame.grid(row=10, column=0, columnspan=2, sticky=tk.W+tk.E, pady=10, padx=5)
+        
+        enable_isis_var = tk.BooleanVar(value=site.enable_isis)
+        ttk.Checkbutton(isis_frame, text="Enable ISIS", variable=enable_isis_var).grid(row=0, column=0, sticky=tk.W, pady=2)
+        
+        ttk.Label(isis_frame, text="ISIS Area:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        isis_area_var = tk.StringVar(value=site.isis_area)
+        isis_area_entry = ttk.Entry(isis_frame, textvariable=isis_area_var, width=20)
+        isis_area_entry.grid(row=1, column=1, sticky=tk.W, pady=2, padx=(10, 0))
+        
+        def save_site():
+            try:
+                # Validate required fields
+                if not site_name_var.get().strip():
+                    messagebox.showerror("Error", "Site name is required")
+                    return
+                
+                # Check if name changed and if new name already exists
+                new_name = site_name_var.get().strip()
+                if new_name != site.name and new_name in self.batch_sites:
+                    messagebox.showerror("Error", "A site with this name already exists")
+                    return
+                
+                # Update site settings
+                site.name = new_name
+                site.gateway = gateway_var.get().strip()
+                site.mgmt_ip = mgmt_ip_var.get().strip()
+                site.mgmt_mask = int(mgmt_mask_var.get()) if mgmt_mask_var.get().isdigit() else 24
+                site.snmp_location = location_var.get().strip()
+                site.snmp_community = snmp_community_var.get().strip()
+                site.snmp_host = snmp_host_var.get().strip()
+                site.timezone = timezone_var.get().strip()
+                site.ntp_servers = [s.strip() for s in ntp_var.get().split(',') if s.strip()]
+                site.name_servers = [s.strip() for s in dns_var.get().split(',') if s.strip()]
+                site.enable_isis = enable_isis_var.get()
+                site.isis_area = isis_area_var.get().strip()
+                
+                # If name changed, update the sites dictionary
+                if new_name != self.current_batch_site:
+                    self.batch_sites[new_name] = site
+                    del self.batch_sites[self.current_batch_site]
+                    self.current_batch_site = new_name
+                    
+                    # Update device assignments
+                    for device, assigned_site in self.device_site_assignments.items():
+                        if assigned_site == self.current_batch_site:
+                            self.device_site_assignments[device] = new_name
+                
+                # Update UI
+                self.update_batch_site_combos()
+                self.update_batch_site_info()
+                self.update_device_tree()
+                
+                messagebox.showinfo("Success", f"Site '{new_name}' updated successfully")
+                dialog.destroy()
+                
+            except ValueError as e:
+                messagebox.showerror("Error", f"Invalid input: {str(e)}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save site: {str(e)}")
+        
+        # Buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=11, column=0, columnspan=2, pady=20)
+        
+        ttk.Button(button_frame, text="Save Changes", command=save_site).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        
+        # Bind Enter key to save
+        dialog.bind('<Return>', lambda e: save_site())
+
+    def delete_batch_site(self):
+        """Delete the current batch site"""
+        if len(self.batch_sites) <= 1:
+            messagebox.showwarning("Warning", "Cannot delete the last remaining site")
+            return
+        
+        if not self.current_batch_site:
+            return
+        
+        if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete site '{self.current_batch_site}'?"):
+            # Remove devices assigned to this site
+            devices_to_remove = [device for device, site in self.device_site_assignments.items() if site == self.current_batch_site]
+            for device in devices_to_remove:
+                del self.device_site_assignments[device]
+            
+            del self.batch_sites[self.current_batch_site]
+            
+            # Switch to first available site
+            self.current_batch_site = list(self.batch_sites.keys())[0]
+            self.update_batch_site_combos()
+            self.update_batch_site_info()
+            self.update_device_tree()
+
+    def rename_batch_site(self):
+        """Rename the current batch site"""
+        if not self.current_batch_site:
+            return
+        
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Rename Site")
+        dialog.geometry("300x150")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.geometry("+%d+%d" % (self.root.winfo_rootx() + 100, self.root.winfo_rooty() + 100))
+        
+        ttk.Label(dialog, text="New Site Name:").pack(pady=10)
+        new_name_var = tk.StringVar(value=self.current_batch_site)
+        new_name_entry = ttk.Entry(dialog, textvariable=new_name_var, width=30)
+        new_name_entry.pack(pady=5)
+        new_name_entry.focus()
+        new_name_entry.select_range(0, tk.END)
+        
+        def rename_site():
+            new_name = new_name_var.get().strip()
+            if not new_name:
+                messagebox.showerror("Error", "Please enter a site name")
+                return
+            
+            if new_name == self.current_batch_site:
+                dialog.destroy()
+                return
+            
+            if new_name in self.batch_sites:
+                messagebox.showerror("Error", "A site with this name already exists")
+                return
+            
+            # Rename the site
+            site_config = self.batch_sites[self.current_batch_site]
+            site_config.name = new_name
+            self.batch_sites[new_name] = site_config
+            del self.batch_sites[self.current_batch_site]
+            
+            # Update device assignments
+            for device, site in self.device_site_assignments.items():
+                if site == self.current_batch_site:
+                    self.device_site_assignments[device] = new_name
+            
+            self.current_batch_site = new_name
+            self.update_batch_site_combos()
+            self.update_batch_site_info()
+            self.update_device_tree()
+            dialog.destroy()
+        
+        ttk.Button(dialog, text="Rename", command=rename_site).pack(pady=20)
+        ttk.Button(dialog, text="Cancel", command=dialog.destroy).pack(pady=5)
+        
+        # Bind Enter key to rename
+        dialog.bind('<Return>', lambda e: rename_site())
+
+    def update_batch_site_combos(self):
+        """Update both site combo boxes"""
+        sites = list(self.batch_sites.keys())
+        self.batch_site_combo['values'] = ["Show All Sites"] + sites
+        self.assign_site_combo['values'] = sites
+        
+        if self.current_batch_site in sites:
+            self.batch_site_combo.set(self.current_batch_site)
+        elif sites:
+            self.current_batch_site = sites[0]
+            self.batch_site_combo.set(self.current_batch_site)
+        if sites:
+            self.assign_site_combo.set(sites[0])
+
+    def update_batch_site_info(self):
+        """Update the batch site info display"""
+        if self.current_batch_site and self.current_batch_site in self.batch_sites:
+            site = self.batch_sites[self.current_batch_site]
+            info = f"Gateway: {site.gateway or 'Not set'}"
+            if site.mgmt_ip:
+                info += f" | Mgmt IP: {site.mgmt_ip}"
+            if site.snmp_location:
+                info += f" | Location: {site.snmp_location}"
+            self.batch_site_info_label.config(text=info)
+
+    def on_batch_site_changed(self, event=None):
+        """Handle batch site selection change"""
+        new_site = self.batch_site_combo.get()
+        if new_site and new_site != self.current_batch_site:
+            self.current_batch_site = new_site
+            if new_site == "Show All Sites":
+                self.update_batch_site_info()
+                # Show all devices
+                self.update_device_tree()
+            else:
+                self.update_batch_site_info()
+                # Filter device tree to show only devices from selected site
+                self.update_device_tree(filter_site=new_site)
+
+    def auto_create_sites_from_csv(self):
+        """Automatically create sites from CSV Site column and assign devices"""
+        if not self.csv_data:
+            return
+        
+        # Find unique site names from CSV
+        sites_in_csv = set()
+        for device in self.csv_data:
+            site_name = device.get('Site', '').strip()
+            if site_name and site_name != 'Unassigned':
+                sites_in_csv.add(site_name)
+        
+        # Create sites that don't exist yet
+        for site_name in sites_in_csv:
+            if site_name not in self.batch_sites:
+                # Create a new site with default settings
+                new_site = SiteConfig(
+                    name=site_name,
+                    gateway="",  # Will use base config gateway
+                    mgmt_ip="",
+                    mgmt_mask=24,
+                    hostname="",
+                    snmp_location=f"Site: {site_name}",
+                    system_id="",
+                    nick_name="",
+                    domain_name="",
+                    timezone="",
+                    snmp_community="public",
+                    snmp_host="",
+                    snmp_group="SNMPGroup",
+                    snmp_user="snmpuser",
+                    snmp_auth_password="Auth_Password123",
+                    snmp_priv_password="Priv_Password123",
+                    enable_ssh=True,
+                    enable_telnet=False,
+                    enable_isis=True,
+                    isis_area="49.0000",
+                    ntp_servers=[],
+                    name_servers=[]
+                )
+                self.batch_sites[site_name] = new_site
+        
+        # Assign devices to their respective sites
+        for device in self.csv_data:
+            device_name = device.get('Device', '')
+            site_name = device.get('Site', '').strip()
+            if site_name and site_name != 'Unassigned' and device_name:
+                self.device_site_assignments[device_name] = site_name
+        
+        # Update UI if sites were created
+        if sites_in_csv:
+            self.update_batch_site_combos()
+            self.update_batch_site_info()
+            messagebox.showinfo("Auto-Site Creation", 
+                              f"Created {len(sites_in_csv)} site(s) from CSV: {', '.join(sorted(sites_in_csv))}")
+
+    def assign_devices_to_site(self):
+        """Assign selected devices to the selected site"""
+        selected_items = self.csv_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Warning", "Please select devices to assign")
+            return
+        
+        target_site = self.assign_site_combo.get()
+        if not target_site:
+            messagebox.showwarning("Warning", "Please select a target site")
+            return
+        
+        assigned_count = 0
+        for item in selected_items:
+            device_name = self.csv_tree.item(item, 'values')[1]  # Device column
+            self.device_site_assignments[device_name] = target_site
+            assigned_count += 1
+        
+        self.update_device_tree()
+        messagebox.showinfo("Success", f"Assigned {assigned_count} devices to {target_site}")
+
+    def clear_device_assignments(self):
+        """Clear site assignments for selected devices"""
+        selected_items = self.csv_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Warning", "Please select devices to clear assignments")
+            return
+        
+        cleared_count = 0
+        for item in selected_items:
+            device_name = self.csv_tree.item(item, 'values')[1]  # Device column
+            if device_name in self.device_site_assignments:
+                del self.device_site_assignments[device_name]
+                cleared_count += 1
+        
+        self.update_device_tree()
+        messagebox.showinfo("Success", f"Cleared assignments for {cleared_count} devices")
+
+    def update_device_tree(self, filter_site=None):
+        """Update the device tree to show site assignments, optionally filtered by site"""
+        # Clear existing items
+        for item in self.csv_tree.get_children():
+            self.csv_tree.delete(item)
+        
+        # Add devices with site information
+        for device in self.csv_data:
+            device_name = device.get('Device', '')
+            site_name = self.device_site_assignments.get(device_name, 'Unassigned')
+            
+            # Filter by site if specified
+            if filter_site and site_name != filter_site:
+                continue
+            
+            values = (
+                device.get('IP-Address', ''),
+                device_name,
+                device.get('Location', ''),
+                device.get('ISIS Nick-name', ''),
+                device.get('System ID', ''),
+                device.get('Hostname', ''),
+                site_name,
+                device.get('Notes', ''),
+                device.get('Management VLAN', ''),
+                device.get('Gateway IP', ''),
+                device.get('SNMP Host', ''),
+                device.get('SNMP Community', ''),
+                device.get('SNMP Group', ''),
+                device.get('SNMP User', ''),
+                device.get('Auth Password', ''),
+                device.get('Privacy Password', '')
+            )
+            self.csv_tree.insert('', 'end', values=values)
+
     def check_for_updates_safely(self):
         try:
             self.check_for_updates()
@@ -445,13 +948,25 @@ class VOSSManagerGUI:
             )
 
             if remote_version is not None and local_version is not None:
-                if self._parse_version(remote_version) > self._parse_version(local_version):
+                # Compare versions properly
+                remote_version_tuple = self._parse_version(remote_version)
+                local_version_tuple = self._parse_version(local_version)
+                
+                if remote_version_tuple > local_version_tuple:
+                    # Newer version available
                     with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
                         latest_bytes = resp.read()
                     if self.prompt_for_update(local_version, remote_version):
                         self.perform_auto_update(latest_bytes)
                     return
+                elif remote_version_tuple == local_version_tuple:
+                    # Same version - no update needed
+                    return
+                else:
+                    # Local version is newer than remote (development version)
+                    return
 
+            # Fallback: If version comparison failed, use hash comparison
             with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
                 latest_bytes = resp.read()
             latest_hash = hashlib.sha256(latest_bytes).hexdigest()
@@ -881,6 +1396,10 @@ class VOSSManagerGUI:
                 else:
                     # Add new
                     self.base_vlan_tree.insert('', 'end', values=(vlan_id, name, i_sid))
+                
+                # Update batch VLAN tree to reflect changes
+                if hasattr(self, 'batch_vlan_tree'):
+                    self.update_batch_vlan_tree()
                     
                 dialog.destroy()
             except ValueError:
@@ -2093,6 +2612,41 @@ class VOSSManagerGUI:
         ttk.Button(output_frame, text="Browse Folder", command=self.browse_output_dir).pack(side=tk.LEFT, padx=5)
         ttk.Button(output_frame, text="Generate All Configs", command=self.generate_batch_configs).pack(side=tk.LEFT, padx=10)
         
+        # Site Management Section
+        site_frame = ttk.LabelFrame(csv_frame, text="Site Management", padding=10)
+        site_frame.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Site controls
+        site_controls = ttk.Frame(site_frame)
+        site_controls.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(site_controls, text="Current Site:").pack(side=tk.LEFT, padx=5)
+        self.batch_site_combo = ttk.Combobox(site_controls, width=20, state="readonly")
+        self.batch_site_combo.pack(side=tk.LEFT, padx=5)
+        self.batch_site_combo.bind("<<ComboboxSelected>>", self.on_batch_site_changed)
+        
+        ttk.Button(site_controls, text="New Site", command=self.create_batch_site).pack(side=tk.LEFT, padx=5)
+        ttk.Button(site_controls, text="Edit Site", command=self.edit_batch_site).pack(side=tk.LEFT, padx=5)
+        ttk.Button(site_controls, text="Delete Site", command=self.delete_batch_site).pack(side=tk.LEFT, padx=5)
+        ttk.Button(site_controls, text="Rename Site", command=self.rename_batch_site).pack(side=tk.LEFT, padx=5)
+        
+        # Site info display
+        self.batch_site_info_label = ttk.Label(site_controls, text="", foreground="blue")
+        self.batch_site_info_label.pack(side=tk.RIGHT, padx=10)
+        
+        # Device-to-Site Assignment
+        assignment_frame = ttk.LabelFrame(site_frame, text="Device Assignment", padding=5)
+        assignment_frame.pack(fill=tk.X, pady=5)
+        
+        assignment_controls = ttk.Frame(assignment_frame)
+        assignment_controls.pack(fill=tk.X)
+        
+        ttk.Label(assignment_controls, text="Assign selected devices to:").pack(side=tk.LEFT, padx=5)
+        self.assign_site_combo = ttk.Combobox(assignment_controls, width=20, state="readonly")
+        self.assign_site_combo.pack(side=tk.LEFT, padx=5)
+        ttk.Button(assignment_controls, text="Assign", command=self.assign_devices_to_site).pack(side=tk.LEFT, padx=5)
+        ttk.Button(assignment_controls, text="Clear Assignment", command=self.clear_device_assignments).pack(side=tk.LEFT, padx=5)
+        
         # Device data management
         device_frame = ttk.LabelFrame(csv_frame, text="Device Configuration Data", padding=5)
         device_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -2109,7 +2663,7 @@ class VOSSManagerGUI:
         ttk.Button(controls_frame, text="Clear All", command=self.clear_all_devices).pack(side=tk.LEFT, padx=10)
         
         # Create treeview for device data
-        columns = ("IP-Address", "Device", "Location", "Nick-name", "sys-id", "sys-name", "Notes", "VLAN Range")
+        columns = ("IP-Address", "Device", "Location", "ISIS Nick-name", "System ID", "Hostname", "Site", "Notes", "Management VLAN", "Gateway IP", "SNMP Host", "SNMP Community", "SNMP Group", "SNMP User", "Auth Password", "Privacy Password")
         self.csv_tree = ttk.Treeview(device_frame, columns=columns, show='headings', height=10)
         
         for col in columns:
@@ -2128,6 +2682,15 @@ class VOSSManagerGUI:
         
         # Initialize device data list
         self.csv_data = []
+        
+        # Initialize site management for batch config
+        self.batch_sites = {}  # Dictionary to store site configurations
+        self.current_batch_site = None
+        self.device_site_assignments = {}  # Dictionary mapping device names to site names
+        self.site_vlans = {}  # Dictionary mapping site names to lists of VLAN tuples (vlan_id, name, i_sid)
+        
+        # Create default site for batch config
+        self.create_default_batch_site()
         
         # Single Config Application Tab
         single_frame = ttk.Frame(batch_notebook)
@@ -2186,6 +2749,15 @@ class VOSSManagerGUI:
         # Left panel - VLAN Assignment
         vlan_assignment_frame = ttk.LabelFrame(vlan_config_paned, text="VLAN Assignment per Switch", padding=10)
         vlan_config_paned.add(vlan_assignment_frame, weight=1)
+        
+        # Site filter for VLAN & Port Config
+        site_filter_frame = ttk.Frame(vlan_assignment_frame)
+        site_filter_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(site_filter_frame, text="Filter by Site:").pack(side=tk.LEFT, padx=5)
+        self.vlan_site_combo = ttk.Combobox(site_filter_frame, width=20, state="readonly")
+        self.vlan_site_combo.pack(side=tk.LEFT, padx=5)
+        self.vlan_site_combo.bind("<<ComboboxSelected>>", self.on_vlan_site_changed)
         
         # VLAN assignment controls
         vlan_controls = ttk.Frame(vlan_assignment_frame)
@@ -2356,37 +2928,29 @@ class VOSSManagerGUI:
                 self.csv_data = []
                 
                 for row in csv_reader:
-                    values = (
-                        row.get('IP-Address', ''),
-                        row.get('Device', ''),
-                        row.get('Location', ''),
-                        row.get('Nick-name', ''),
-                        row.get('sys-id', ''),
-                        row.get('sys-name', ''),
-                        row.get('Notes', ''),
-                        row.get('VLAN Range', '')
-                    )
-                    self.csv_tree.insert('', 'end', values=values)
-                    
                     self.csv_data.append(row)
                 
-                detected_gateway = self.analyze_network_and_detect_gateway()
-                if detected_gateway:
-                    self.base_gateway_var.set(detected_gateway)
-                    gateway_message = f"\n\nAuto-detected gateway: {detected_gateway}"
-                    if hasattr(self, 'base_config_status_label'):
-                        self.base_config_status_label.config(
-                            text=f"✓ Using Base Config as template (Gateway: {detected_gateway})", 
-                            foreground="green"
-                        )
+                # Auto-create sites from CSV Site column and assign devices
+                self.auto_create_sites_from_csv()
+                
+                # Update the device tree with site assignments
+                self.update_device_tree()
+                
+                # Only auto-detect gateway if no device-specific gateways are found
+                has_device_gateways = any(device.get('Gateway IP', '').strip() for device in self.csv_data)
+                if not has_device_gateways:
+                    detected_gateway = self.analyze_network_and_detect_gateway()
+                    if detected_gateway:
+                        self.base_gateway_var.set(detected_gateway)
+                        gateway_message = f"\n\nAuto-detected gateway: {detected_gateway}"
                 else:
-                    gateway_message = "\n\nCould not auto-detect gateway - please set manually in Base Config"
+                    gateway_message = f"\n\nUsing device-specific gateways from CSV"
                     if hasattr(self, 'base_config_status_label'):
                         self.base_config_status_label.config(
                             text="⚠ Base Config ready (Please set gateway manually)", 
                             foreground="orange"
                         )
-                # Auto-import VLANs from CSV "VLAN Range" column
+                # Auto-import VLANs from CSV "Management VLAN" column
                 csv_vlans = self.extract_vlans_from_csv()
                 if csv_vlans:
                     # Prepare tuples: (vlan_id, name, isid)
@@ -2472,7 +3036,7 @@ class VOSSManagerGUI:
         """Device configuration dialog"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Device Configuration")
-        dialog.geometry("400x300")
+        dialog.geometry("500x650")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -2480,10 +3044,19 @@ class VOSSManagerGUI:
             ("IP Address:", "IP-Address"),
             ("Device Name:", "Device"),
             ("Location:", "Location"),
-            ("Nick Name:", "Nick-name"),
-            ("System ID:", "sys-id"),
-            ("System Name:", "sys-name"),
-            ("Notes:", "Notes")
+            ("ISIS Nick-name:", "ISIS Nick-name"),
+            ("System ID:", "System ID"),
+            ("Hostname:", "Hostname"),
+            ("Site:", "Site"),
+            ("Notes:", "Notes"),
+            ("Management VLAN:", "Management VLAN"),
+            ("Gateway IP:", "Gateway IP"),
+            ("SNMP Host:", "SNMP Host"),
+            ("SNMP Community:", "SNMP Community"),
+            ("SNMP Group:", "SNMP Group"),
+            ("SNMP User:", "SNMP User"),
+            ("Auth Password:", "Auth Password"),
+            ("Privacy Password:", "Privacy Password")
         ]
         
         vars_dict = {}
@@ -2496,7 +3069,7 @@ class VOSSManagerGUI:
         
         def save_device():
             try:
-                required_fields = ["IP-Address", "Device", "Location", "Nick-name", "sys-id", "sys-name"]
+                required_fields = ["IP-Address", "Device", "Location", "ISIS Nick-name", "System ID", "Hostname"]
                 for field in required_fields:
                     if not vars_dict[field].get().strip():
                         messagebox.showerror("Error", f"{field.replace('-', ' ').title()} is required")
@@ -2512,9 +3085,12 @@ class VOSSManagerGUI:
                 self.update_csv_data_from_tree()
                 
                 if not item and not self.base_gateway_var.get().strip():
-                    detected_gateway = self.analyze_network_and_detect_gateway()
-                    if detected_gateway:
-                        self.base_gateway_var.set(detected_gateway)
+                    # Only auto-detect if no device-specific gateways are available
+                    has_device_gateways = any(device.get('Gateway IP', '').strip() for device in self.csv_data)
+                    if not has_device_gateways:
+                        detected_gateway = self.analyze_network_and_detect_gateway()
+                        if detected_gateway:
+                            self.base_gateway_var.set(detected_gateway)
                         if hasattr(self, 'base_config_status_label'):
                             self.base_config_status_label.config(
                                 text=f"✓ Using Base Config as template (Gateway: {detected_gateway})", 
@@ -2583,14 +3159,22 @@ class VOSSManagerGUI:
         for item in self.csv_tree.get_children():
             values = self.csv_tree.item(item, 'values')
             device_dict = {
-                'IP-Address': values[0],
-                'Device': values[1],
-                'Location': values[2],
-                'Nick-name': values[3],
-                'sys-id': values[4],
-                'sys-name': values[5],
-                'Notes': values[6],
-                'VLAN Range': values[7] if len(values) > 7 else ''
+                'IP-Address': values[0] if len(values) > 0 else '',
+                'Device': values[1] if len(values) > 1 else '',
+                'Location': values[2] if len(values) > 2 else '',
+                'ISIS Nick-name': values[3] if len(values) > 3 else '',
+                'System ID': values[4] if len(values) > 4 else '',
+                'Hostname': values[5] if len(values) > 5 else '',
+                'Site': values[6] if len(values) > 6 else '',
+                'Notes': values[7] if len(values) > 7 else '',
+                'Management VLAN': values[8] if len(values) > 8 else '',
+                'Gateway IP': values[9] if len(values) > 9 else '',
+                'SNMP Host': values[10] if len(values) > 10 else '',
+                'SNMP Community': values[11] if len(values) > 11 else '',
+                'SNMP Group': values[12] if len(values) > 12 else '',
+                'SNMP User': values[13] if len(values) > 13 else '',
+                'Auth Password': values[14] if len(values) > 14 else '',
+                'Privacy Password': values[15] if len(values) > 15 else ''
             }
             self.csv_data.append(device_dict)
     
@@ -2744,7 +3328,7 @@ class VOSSManagerGUI:
             return "Analysis details unavailable"
     
     def analyze_and_detect_vlans(self):
-        """Analyze CSV data and detect VLANs from VLAN Range field"""
+        """Analyze CSV data and detect VLANs from Management VLAN field"""
         if not self.csv_data:
             return []
         
@@ -2752,9 +3336,9 @@ class VOSSManagerGUI:
         
         try:
             for device in self.csv_data:
-                vlan_range = device.get('VLAN Range', '').strip()
+                vlan_range = device.get('Management VLAN', '').strip()
                 if vlan_range:
-                    # Handle different VLAN range formats
+                    # Handle different Management VLAN formats
                     vlans = self.parse_vlan_range(vlan_range)
                     detected_vlans.update(vlans)
             
@@ -2764,12 +3348,12 @@ class VOSSManagerGUI:
             return []
     
     def extract_vlans_from_csv(self):
-        """Extract VLAN IDs from the CSV 'VLAN Range' column across all rows."""
+        """Extract VLAN IDs from the CSV 'Management VLAN' column across all rows."""
         if not self.csv_data:
             return set()
         vlans = set()
         for device in self.csv_data:
-            vlan_range = (device.get('VLAN Range', '') or '').strip()
+            vlan_range = (device.get('Management VLAN', '') or '').strip()
             if not vlan_range:
                 continue
             try:
@@ -2780,7 +3364,7 @@ class VOSSManagerGUI:
         return vlans
 
     def parse_vlan_range(self, vlan_range_str):
-        """Parse VLAN range string and return list of VLAN IDs"""
+        """Parse Management VLAN string and return list of VLAN IDs"""
         vlans = []
         
         try:
@@ -2796,12 +3380,12 @@ class VOSSManagerGUI:
                 if '-' not in range_part:
                     try:
                         vlan_id = int(range_part)
-                        if 1 <= vlan_id <= 4094:  # Valid VLAN range
+                        if 1 <= vlan_id <= 4094:  # Valid Management VLAN
                             vlans.append(vlan_id)
                     except ValueError:
                         continue
                 else:
-                    # Handle VLAN range (e.g., "100-110")
+                    # Handle Management VLAN range (e.g., "100-110")
                     try:
                         start_str, end_str = range_part.split('-', 1)
                         start = int(start_str.strip())
@@ -3063,10 +3647,38 @@ class VOSSManagerGUI:
             self.vlan_assignments[device_name] = []
             self.port_config_list[device_name] = []
         
-        # Update the VLAN assignment tree
-        self.update_vlan_assignment_tree()
+        # Update the VLAN assignment tree while preserving current site filter
+        current_site = self.vlan_site_combo.get() if hasattr(self, 'vlan_site_combo') else "Show All Sites"
+        if current_site == "Show All Sites":
+            self.update_vlan_assignment_tree()
+        else:
+            self.update_vlan_assignment_tree(filter_site=current_site)
+        
+        # Update VLAN site combo
+        self.update_vlan_site_combo()
+        
+        # Update batch VLAN tree (always shows all VLANs)
+        self.update_batch_vlan_tree()
         
         messagebox.showinfo("Success", f"Loaded {len(self.csv_data)} switches. You can now assign VLANs and configure ports.")
+    
+    def update_vlan_site_combo(self):
+        """Update the VLAN site combo box"""
+        sites = ["Show All Sites"] + list(self.batch_sites.keys())
+        self.vlan_site_combo['values'] = sites
+        if sites:
+            self.vlan_site_combo.set("Show All Sites")
+    
+    def on_vlan_site_changed(self, event=None):
+        """Handle VLAN site selection change"""
+        selected_site = self.vlan_site_combo.get()
+        if selected_site == "Show All Sites":
+            self.update_vlan_assignment_tree()
+            self.update_batch_vlan_tree()
+        else:
+            self.update_vlan_assignment_tree(filter_site=selected_site)
+            # Always show all VLANs in management panel - don't filter by site
+            self.update_batch_vlan_tree()
     
     def auto_assign_vlans(self):
         """Auto-assign VLANs to switches based on detected VLANs and switch characteristics"""
@@ -3087,10 +3699,19 @@ class VOSSManagerGUI:
         # Clear existing assignments
         self.vlan_assignments = {}
         
+        # Get current site filter
+        current_site = self.vlan_site_combo.get() if hasattr(self, 'vlan_site_combo') else "Show All Sites"
+        
         # Auto-assign VLANs based on switch characteristics
         for device in self.csv_data:
             device_name = device.get('Device', '')
             ip_address = device.get('IP-Address', '')
+            
+            # Skip devices not in the current site filter
+            if current_site != "Show All Sites":
+                device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+                if device_site != current_site:
+                    continue
             
             # Determine VLANs for this switch
             assigned_vlans = self.determine_switch_vlans(device, available_vlans)
@@ -3101,8 +3722,11 @@ class VOSSManagerGUI:
             self.port_configurations[device_name] = port_config
             self.port_configurations[f"{device_name}_range"] = "1/1-1/48"
         
-        # Update the VLAN assignment tree
-        self.update_vlan_assignment_tree()
+        # Update the VLAN assignment tree while preserving current site filter
+        if current_site == "Show All Sites":
+            self.update_vlan_assignment_tree()
+        else:
+            self.update_vlan_assignment_tree(filter_site=current_site)
         
         messagebox.showinfo("Success", f"Auto-assigned VLANs to {len(self.vlan_assignments)} switches")
     
@@ -3146,8 +3770,8 @@ class VOSSManagerGUI:
         else:
             return "access"  # Single VLAN = access
     
-    def update_vlan_assignment_tree(self):
-        """Update the VLAN assignment tree view"""
+    def update_vlan_assignment_tree(self, filter_site=None):
+        """Update the VLAN assignment tree view, optionally filtered by site"""
         # Clear existing items
         for item in self.vlan_assignment_tree.get_children():
             self.vlan_assignment_tree.delete(item)
@@ -3161,6 +3785,11 @@ class VOSSManagerGUI:
         for device in self.csv_data:
             device_name = device.get('Device', '')
             ip_address = device.get('IP-Address', '')
+            site_name = self.device_site_assignments.get(device_name, 'Unassigned')
+            
+            # Filter by site if specified
+            if filter_site and site_name != filter_site:
+                continue
             
             vlans = self.vlan_assignments.get(device_name, [])
             port_configs = self.port_config_list.get(device_name, [])
@@ -3201,11 +3830,37 @@ class VOSSManagerGUI:
         ))
     
     def clear_vlan_assignments(self):
-        """Clear all VLAN assignments"""
-        self.vlan_assignments = {}
-        self.port_configurations = {}
-        self.update_vlan_assignment_tree()
-        messagebox.showinfo("Success", "Cleared all VLAN assignments")
+        """Clear VLAN assignments for the currently selected site"""
+        current_site = self.vlan_site_combo.get() if hasattr(self, 'vlan_site_combo') else "Show All Sites"
+        
+        if current_site == "Show All Sites":
+            # Clear all assignments
+            self.vlan_assignments = {}
+            self.port_configurations = {}
+            messagebox.showinfo("Success", "Cleared all VLAN assignments")
+        else:
+            # Clear only assignments for the current site
+            devices_to_clear = []
+            for device_name, assigned_site in self.device_site_assignments.items():
+                if assigned_site == current_site:
+                    devices_to_clear.append(device_name)
+            
+            # Remove assignments for devices in the current site
+            for device_name in devices_to_clear:
+                if device_name in self.vlan_assignments:
+                    del self.vlan_assignments[device_name]
+                if device_name in self.port_configurations:
+                    del self.port_configurations[device_name]
+                if f"{device_name}_range" in self.port_configurations:
+                    del self.port_configurations[f"{device_name}_range"]
+            
+            messagebox.showinfo("Success", f"Cleared VLAN assignments for {current_site}")
+        
+        # Update tree while preserving current site filter
+        if current_site == "Show All Sites":
+            self.update_vlan_assignment_tree()
+        else:
+            self.update_vlan_assignment_tree(filter_site=current_site)
     
     def apply_vlan_assignments(self):
         """Apply VLAN assignments to selected switches"""
@@ -3274,11 +3929,25 @@ class VOSSManagerGUI:
             
             # Add VLAN and port configuration
             device_name = device_dict.get('Device', '')
-            vlans = self.vlan_assignments.get(device_name, [])
+            
+            # Use device-specific VLANs from CSV Management VLAN field
+            device_vlans = []
+            mgmt_vlan = device_dict.get('Management VLAN', '').strip()
+            if mgmt_vlan:
+                try:
+                    device_vlans = self.parse_vlan_range(mgmt_vlan)
+                except:
+                    device_vlans = []
+            
+            # Fallback to global VLAN assignments if no device-specific VLANs
+            if not device_vlans:
+                device_vlans = self.vlan_assignments.get(device_name, [])
+            
+            vlans = device_vlans
             port_config = self.port_configurations.get(device_name, 'auto')
             
             # Generate VLAN configuration commands
-            vlan_commands = self.generate_vlan_commands(vlans)
+            vlan_commands = self.generate_vlan_commands(vlans, device_name)
             
             # Generate port configuration commands
             port_range = self.port_configurations.get(f"{device_name}_range", "1/1-1/48")
@@ -3294,12 +3963,14 @@ class VOSSManagerGUI:
             messagebox.showerror("Error", f"Failed to generate enhanced config: {str(e)}")
             return None
     
-    def generate_vlan_commands(self, vlans):
-        """Generate VLAN configuration commands"""
+    def generate_vlan_commands(self, vlans, device_name=None):
+        """Generate VLAN configuration commands for specific device"""
         commands = []
         
         if not vlans:
             return ""
+        
+        print(f"DEBUG: Generating VLANs for device {device_name}: {vlans}")
         
         commands.append("# VLAN CONFIGURATION")
         commands.append("")
@@ -3313,11 +3984,33 @@ class VOSSManagerGUI:
             i_sid = int(values[2])
             vlan_details[vlan_id] = {'name': vlan_name, 'i_sid': i_sid}
         
+        # Also get VLAN details from site-specific VLANs
+        if device_name:
+            device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+            if device_site in self.site_vlans:
+                for vlan_id, vlan_name, i_sid in self.site_vlans[device_site]:
+                    vlan_details[vlan_id] = {'name': vlan_name, 'i_sid': i_sid}
+        
         for vlan_id in vlans:
-            if vlan_id in vlan_details:
+            # Check if this VLAN comes from Management VLAN field first
+            vlan_name = f"VLAN {vlan_id}"  # Default name
+            if device_name and hasattr(self, 'csv_data'):
+                device_data = next((d for d in self.csv_data if d.get('Device') == device_name), None)
+                if device_data and device_data.get('Management VLAN', '').strip():
+                    mgmt_vlans = self.parse_vlan_range(device_data.get('Management VLAN', ''))
+                    if vlan_id in mgmt_vlans:
+                        vlan_name = "Management"
+            
+            if vlan_id in vlan_details and vlan_name == f"VLAN {vlan_id}":
+                # Only use base config name if not from Management VLAN field
                 vlan_info = vlan_details[vlan_id]
                 commands.append(f"vlan create {vlan_id} name \"{vlan_info['name']}\" type port-mstprstp 0")
                 commands.append(f"vlan i-sid {vlan_id} {vlan_info['i_sid']}")
+                commands.append("")
+            else:
+                # Use the determined vlan_name (either "Management VLAN" or "VLAN {id}")
+                commands.append(f"vlan create {vlan_id} name \"{vlan_name}\" type port-mstprstp 0")
+                commands.append(f"vlan i-sid {vlan_id} 1040{vlan_id:03d}")
                 commands.append("")
         
         return "\n".join(commands)
@@ -3358,7 +4051,69 @@ class VOSSManagerGUI:
     
     def add_vlan_to_batch(self):
         """Add VLAN to batch VLAN management"""
-        self.batch_vlan_dialog()
+        self.site_vlan_dialog()
+    
+    def site_vlan_dialog(self, existing_values=None, item=None):
+        """VLAN configuration dialog for site-specific VLAN management"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Site VLAN Configuration")
+        dialog.geometry("350x200")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text="VLAN ID:").grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
+        vlan_id_var = tk.StringVar(value=existing_values[0] if existing_values else "")
+        ttk.Entry(dialog, textvariable=vlan_id_var, width=20).grid(row=0, column=1, padx=10, pady=5)
+        
+        ttk.Label(dialog, text="Name:").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
+        name_var = tk.StringVar(value=existing_values[1] if existing_values else "")
+        ttk.Entry(dialog, textvariable=name_var, width=20).grid(row=1, column=1, padx=10, pady=5)
+        
+        ttk.Label(dialog, text="I-SID:").grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
+        isid_var = tk.StringVar(value=existing_values[2] if existing_values else "")
+        ttk.Entry(dialog, textvariable=isid_var, width=20).grid(row=2, column=1, padx=10, pady=5)
+        
+        ttk.Button(dialog, text="Auto-Generate I-SID", 
+                  command=lambda: isid_var.set(str(1040000 + int(vlan_id_var.get()) if vlan_id_var.get().isdigit() else 1040001))).grid(row=2, column=2, padx=5)
+        
+        def save_vlan():
+            try:
+                vlan_id = int(vlan_id_var.get())
+                name = name_var.get()
+                i_sid = int(isid_var.get()) if isid_var.get() else 1040000 + vlan_id
+                
+                # Get current site
+                current_site = self.vlan_site_combo.get() if hasattr(self, 'vlan_site_combo') else "Show All Sites"
+                
+                if current_site == "Show All Sites":
+                    messagebox.showwarning("Warning", "Please select a specific site to add VLANs")
+                    return
+                
+                # Initialize site VLANs if not exists
+                if current_site not in self.site_vlans:
+                    self.site_vlans[current_site] = []
+                
+                if existing_values:
+                    # Update existing VLAN
+                    for i, (vid, vname, visid) in enumerate(self.site_vlans[current_site]):
+                        if vid == int(existing_values[0]):
+                            self.site_vlans[current_site][i] = (vlan_id, name, i_sid)
+                            break
+                else:
+                    # Add new VLAN to site
+                    self.site_vlans[current_site].append((vlan_id, name, i_sid))
+                
+                # Update the batch VLAN tree
+                self.update_batch_vlan_tree()
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Error", "VLAN ID and I-SID must be numbers")
+        
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=3, column=0, columnspan=3, pady=10)
+        
+        ttk.Button(button_frame, text="Save", command=save_vlan).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
     
     def edit_vlan_in_batch(self):
         """Edit VLAN in batch VLAN management"""
@@ -3369,7 +4124,7 @@ class VOSSManagerGUI:
         
         item = selection[0]
         values = self.batch_vlan_tree.item(item, 'values')
-        self.batch_vlan_dialog(values, item)
+        self.site_vlan_dialog(values)
     
     def remove_vlan_from_batch(self):
         """Remove VLAN from batch VLAN management"""
@@ -3379,8 +4134,19 @@ class VOSSManagerGUI:
             return
         
         if messagebox.askyesno("Confirm", "Remove selected VLAN?"):
-            self.batch_vlan_tree.delete(selection[0])
-            self.sync_batch_vlans_to_base()
+            # Get the VLAN ID from the selected item
+            values = self.batch_vlan_tree.item(selection[0], 'values')
+            vlan_id = int(values[0])
+            
+            # Get current site
+            current_site = self.vlan_site_combo.get() if hasattr(self, 'vlan_site_combo') else "Show All Sites"
+            
+            if current_site != "Show All Sites" and current_site in self.site_vlans:
+                # Remove from site-specific VLANs
+                self.site_vlans[current_site] = [(vid, name, i_sid) for vid, name, i_sid in self.site_vlans[current_site] if vid != vlan_id]
+            
+            # Update the batch tree to reflect changes
+            self.update_batch_vlan_tree()
     
     def load_vlan_template_batch(self):
         """Load VLAN template for batch configuration"""
@@ -3514,21 +4280,47 @@ class VOSSManagerGUI:
             messagebox.showerror("Error", "Please enter a valid VLAN ID first")
     
     def sync_batch_vlans_to_base(self):
-        """Sync VLANs from batch management to base config"""
+        """Sync VLANs from batch management to base config (additive only)"""
         if not hasattr(self, 'base_vlan_tree'):
             return
         
-        # Clear base VLAN tree
+        # Get current base VLANs
+        existing_base_vlans = set()
         for item in self.base_vlan_tree.get_children():
-            self.base_vlan_tree.delete(item)
+            values = self.base_vlan_tree.item(item, 'values')
+            existing_base_vlans.add(int(values[0]))
         
-        # Add VLANs from batch management
+        # Add only new VLANs from batch management (don't delete existing ones)
         for item in self.batch_vlan_tree.get_children():
             values = self.batch_vlan_tree.item(item, 'values')
             vlan_id = int(values[0])
             name = values[1]
             i_sid = int(values[2])
-            self.base_vlan_tree.insert('', 'end', values=(vlan_id, name, i_sid))
+            
+            # Only add if not already in base config
+            if vlan_id not in existing_base_vlans:
+                self.base_vlan_tree.insert('', 'end', values=(vlan_id, name, i_sid))
+    
+    def update_batch_vlan_tree(self, filter_site=None):
+        """Update the batch VLAN tree - shows VLANs for the selected site"""
+        # Clear batch VLAN tree
+        for item in self.batch_vlan_tree.get_children():
+            self.batch_vlan_tree.delete(item)
+        
+        # Get the current site from the VLAN site combo
+        current_site = self.vlan_site_combo.get() if hasattr(self, 'vlan_site_combo') else "Show All Sites"
+        
+        if current_site == "Show All Sites":
+            # Show all VLANs from base config
+            if hasattr(self, 'base_vlan_tree'):
+                for item in self.base_vlan_tree.get_children():
+                    values = self.base_vlan_tree.item(item, 'values')
+                    self.batch_vlan_tree.insert('', 'end', values=values)
+        else:
+            # Show only VLANs for the selected site
+            if current_site in self.site_vlans:
+                for vlan_id, name, i_sid in self.site_vlans[current_site]:
+                    self.batch_vlan_tree.insert('', 'end', values=(vlan_id, name, i_sid))
     
     def sync_base_vlans_to_batch(self):
         """Sync VLANs from base config to batch management"""
@@ -3609,11 +4401,29 @@ class VOSSManagerGUI:
         right_frame = ttk.LabelFrame(main_frame, text="VLAN Assignment", padding=10)
         right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
         
-        # Get available VLANs
+        # Get device's site and show all VLANs for that site
+        device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+        
+        # Get available VLANs - show all VLANs for the device's site
         available_vlans = []
-        for item in self.base_vlan_tree.get_children():
-            values = self.base_vlan_tree.item(item, 'values')
-            available_vlans.append((int(values[0]), values[1]))
+        if device_site == 'Unassigned' or device_site not in self.batch_sites:
+            # If device is unassigned or site doesn't exist, show all VLANs from base config
+            for item in self.base_vlan_tree.get_children():
+                values = self.base_vlan_tree.item(item, 'values')
+                available_vlans.append((int(values[0]), values[1]))
+        else:
+            # Show all VLANs for this site (both from base config and site-specific)
+            # First add VLANs from base config
+            for item in self.base_vlan_tree.get_children():
+                values = self.base_vlan_tree.item(item, 'values')
+                available_vlans.append((int(values[0]), values[1]))
+            
+            # Then add site-specific VLANs
+            if device_site in self.site_vlans:
+                for vlan_id, name, i_sid in self.site_vlans[device_site]:
+                    # Check if VLAN already exists to avoid duplicates
+                    if not any(vid == vlan_id for vid, _ in available_vlans):
+                        available_vlans.append((vlan_id, name))
         
         # Create VLAN checkboxes
         vlan_vars = {}
@@ -3638,8 +4448,12 @@ class VOSSManagerGUI:
                 self.vlan_assignments[device_name] = selected_vlans
                 print(f"DEBUG: Set VLAN assignments for {device_name}: {selected_vlans}")
                 
-                # Update tree
-                self.update_vlan_assignment_tree()
+                # Update tree while preserving current site filter
+                current_site = self.vlan_site_combo.get()
+                if current_site == "Show All Sites":
+                    self.update_vlan_assignment_tree()
+                else:
+                    self.update_vlan_assignment_tree(filter_site=current_site)
                 
                 messagebox.showinfo("Success", f"Port configurations updated for {device_name}")
                 dialog.destroy()
@@ -3704,11 +4518,29 @@ class VOSSManagerGUI:
         vlan_frame = ttk.Frame(dialog)
         vlan_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Get available VLANs
+        # Get device's site and show all VLANs for that site
+        device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+        
+        # Get available VLANs - show all VLANs for the device's site
         available_vlans = []
-        for item in self.base_vlan_tree.get_children():
-            values = self.base_vlan_tree.item(item, 'values')
-            available_vlans.append((int(values[0]), values[1]))
+        if device_site == 'Unassigned' or device_site not in self.batch_sites:
+            # If device is unassigned or site doesn't exist, show all VLANs from base config
+            for item in self.base_vlan_tree.get_children():
+                values = self.base_vlan_tree.item(item, 'values')
+                available_vlans.append((int(values[0]), values[1]))
+        else:
+            # Show all VLANs for this site (both from base config and site-specific)
+            # First add VLANs from base config
+            for item in self.base_vlan_tree.get_children():
+                values = self.base_vlan_tree.item(item, 'values')
+                available_vlans.append((int(values[0]), values[1]))
+            
+            # Then add site-specific VLANs
+            if device_site in self.site_vlans:
+                for vlan_id, name, i_sid in self.site_vlans[device_site]:
+                    # Check if VLAN already exists to avoid duplicates
+                    if not any(vid == vlan_id for vid, _ in available_vlans):
+                        available_vlans.append((vlan_id, name))
         
         vlan_vars = {}
         default_vlan_var = tk.StringVar()
@@ -3919,11 +4751,29 @@ class VOSSManagerGUI:
         vlan_frame = ttk.Frame(dialog)
         vlan_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Get available VLANs
+        # Get device's site and show all VLANs for that site
+        device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+        
+        # Get available VLANs - show all VLANs for the device's site
         available_vlans = []
-        for item in self.base_vlan_tree.get_children():
-            values = self.base_vlan_tree.item(item, 'values')
-            available_vlans.append((int(values[0]), values[1]))
+        if device_site == 'Unassigned' or device_site not in self.batch_sites:
+            # If device is unassigned or site doesn't exist, show all VLANs from base config
+            for item in self.base_vlan_tree.get_children():
+                values = self.base_vlan_tree.item(item, 'values')
+                available_vlans.append((int(values[0]), values[1]))
+        else:
+            # Show all VLANs for this site (both from base config and site-specific)
+            # First add VLANs from base config
+            for item in self.base_vlan_tree.get_children():
+                values = self.base_vlan_tree.item(item, 'values')
+                available_vlans.append((int(values[0]), values[1]))
+            
+            # Then add site-specific VLANs
+            if device_site in self.site_vlans:
+                for vlan_id, name, i_sid in self.site_vlans[device_site]:
+                    # Check if VLAN already exists to avoid duplicates
+                    if not any(vid == vlan_id for vid, _ in available_vlans):
+                        available_vlans.append((vlan_id, name))
         
         vlan_vars = {}
         default_vlan_var = tk.StringVar()
@@ -4112,14 +4962,21 @@ class VOSSManagerGUI:
         item = selection[0]
         values = self.csv_tree.item(item, 'values')
         device_dict = {
-            'IP-Address': values[0],
-            'Device': values[1],
-            'Location': values[2],
-            'Nick-name': values[3],
-            'sys-id': values[4],
-            'sys-name': values[5],
-            'Notes': values[6],
-            'VLAN Range': values[7]
+            'IP-Address': values[0] if len(values) > 0 else '',
+            'Device': values[1] if len(values) > 1 else '',
+            'Location': values[2] if len(values) > 2 else '',
+            'ISIS Nick-name': values[3] if len(values) > 3 else '',
+            'System ID': values[4] if len(values) > 4 else '',
+            'Hostname': values[5] if len(values) > 5 else '',
+            'Notes': values[7] if len(values) > 7 else '',  # Skip Site column (index 6)
+            'Management VLAN': values[8] if len(values) > 8 else '',
+            'Gateway IP': values[9] if len(values) > 9 else '',
+            'SNMP Host': values[10] if len(values) > 10 else '',
+            'SNMP Community': values[11] if len(values) > 11 else '',
+            'SNMP Group': values[12] if len(values) > 12 else '',
+            'SNMP User': values[13] if len(values) > 13 else '',
+            'Auth Password': values[14] if len(values) > 14 else '',
+            'Privacy Password': values[15] if len(values) > 15 else ''
         }
         
         # Store current device
@@ -4127,7 +4984,10 @@ class VOSSManagerGUI:
         
         # Generate configuration
         try:
-            config_content = self.generate_device_config(device_dict)
+            # Get device site for site-specific configuration
+            device_name = device_dict.get('Device', '')
+            device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+            config_content = self.generate_device_config(device_dict, device_site)
             if config_content:
                 # Update preview tab
                 self.preview_device_label.config(text=f"Device: {device_dict['Device']} ({device_dict['IP-Address']})")
@@ -4143,8 +5003,8 @@ class VOSSManagerGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate preview: {str(e)}")
     
-    def generate_device_config(self, device_dict):
-        """Generate configuration for a specific device"""
+    def generate_device_config(self, device_dict, device_site=None):
+        """Generate configuration for a specific device using site-specific settings"""
         try:
             device_name = device_dict.get('Device', '')
             print(f"DEBUG: Generating config for device: {device_name}")
@@ -4157,19 +5017,27 @@ class VOSSManagerGUI:
             
             # Get template content based on source
             if self.template_source_var.get() == "base_config":
-                # Use base config as template
-                template_content = self.generate_base_config_template()
-                if not template_content:
-                    messagebox.showerror("Error", "Please configure the Base Config tab first")
-                    return None
-                
-                # Apply substitutions for base config templates
-                config_content = template_content
-                config_content = config_content.replace('$sys-name$', device_dict.get('sys-name', ''))
-                config_content = config_content.replace('$ip-address$', device_dict.get('IP-Address', ''))
-                config_content = config_content.replace('$location$', device_dict.get('Location', ''))
-                config_content = config_content.replace('$nick-name$', device_dict.get('Nick-name', ''))
-                config_content = config_content.replace('$sys-id$', device_dict.get('sys-id', ''))
+                # Check if we should use device-specific config instead of base config
+                if device_dict.get('Management VLAN', '').strip() or device_dict.get('Gateway IP', '').strip():
+                    # Use device-specific config generation (bypass base config)
+                    config_content = self.generate_device_specific_config(device_dict, device_site)
+                    if not config_content:
+                        messagebox.showerror("Error", "Failed to generate device-specific configuration")
+                        return None
+                else:
+                    # Use base config as template with site-specific settings
+                    template_content = self.generate_base_config_template(device_site, device_dict)
+                    if not template_content:
+                        messagebox.showerror("Error", "Please configure the Base Config tab first")
+                        return None
+                    
+                    # Apply substitutions for base config templates
+                    config_content = template_content
+                    config_content = config_content.replace('$sys-name$', device_dict.get('Hostname', ''))
+                    config_content = config_content.replace('$ip-address$', device_dict.get('IP-Address', ''))
+                    config_content = config_content.replace('$location$', device_dict.get('Location', ''))
+                    config_content = config_content.replace('$nick-name$', device_dict.get('ISIS Nick-name', ''))
+                    config_content = config_content.replace('$sys-id$', device_dict.get('System ID', ''))
                 
             else:
                 # Use template file
@@ -4205,9 +5073,34 @@ class VOSSManagerGUI:
             
             print(f"DEBUG: Has port configs: {has_port_configs}")
             
+            # Always get device-specific VLANs from CSV Management VLAN field
+            device_vlans = []
+            mgmt_vlan = device_dict.get('Management VLAN', '').strip()
+            if mgmt_vlan:
+                try:
+                    device_vlans = self.parse_vlan_range(mgmt_vlan)
+                    print(f"DEBUG: Device {device_name} - Parsed VLANs from CSV: {device_vlans}")
+                except Exception as e:
+                    print(f"DEBUG: Error parsing VLANs for {device_name}: {e}")
+                    device_vlans = []
+            
+            # Fallback to global VLAN assignments if no device-specific VLANs
+            if not device_vlans:
+                device_vlans = self.vlan_assignments.get(device_name, []) if hasattr(self, 'vlan_assignments') else []
+                print(f"DEBUG: Device {device_name} - Using global VLAN assignments: {device_vlans}")
+            
+            vlans = device_vlans
+            
+            # Always generate VLAN commands if VLANs are specified
+            vlan_commands = ""
+            if vlans and "vlan create" not in config_content:
+                vlan_commands = self.generate_vlan_commands(vlans, device_name)
+                print(f"DEBUG: Adding VLAN commands for device {device_name}: {vlans}")
+            elif "vlan create" in config_content:
+                print(f"DEBUG: VLAN commands already exist in base config, skipping VLAN creation")
+            
             if has_port_configs:
-                # Get VLAN and port configurations for this device
-                vlans = self.vlan_assignments.get(device_name, []) if hasattr(self, 'vlan_assignments') else []
+                # Get port configurations for this device
                 port_configs = self.port_config_list.get(device_name, [])
                 
                 # Debug: Print what we found
@@ -4216,21 +5109,7 @@ class VOSSManagerGUI:
                 if port_configs:  # Only add port config if port configs are assigned
                     print(f"DEBUG: Processing {len(port_configs)} port configurations")
                     
-                    # Check if VLAN commands already exist in the config
-                    vlan_commands = ""
-                    if "vlan create" not in config_content:
-                        # Generate VLAN configuration commands (use VLANs from port configs if no global VLANs)
-                        if vlans:
-                            vlan_commands = self.generate_vlan_commands(vlans)
-                        else:
-                            # Get VLANs from port configurations
-                            all_vlans = set()
-                            for port_config in port_configs:
-                                all_vlans.update(port_config.get('vlans', []))
-                            vlan_commands = self.generate_vlan_commands(list(all_vlans))
-                        print(f"DEBUG: Adding VLAN commands (not found in base config)")
-                    else:
-                        print(f"DEBUG: VLAN commands already exist in base config, skipping VLAN creation")
+                    # VLAN commands already generated above, no need to duplicate
                     
                     # Generate port configuration commands for all port configs
                     all_port_commands = []
@@ -4299,11 +5178,197 @@ class VOSSManagerGUI:
                         print("DEBUG: Port configuration successfully inserted into config")
                     else:
                         print("DEBUG: WARNING - Port configuration was NOT inserted into config")
+            else:
+                # No port configs, but still add VLAN commands if we have them
+                if vlan_commands:
+                    if "wr mem" in config_content:
+                        enhanced_section = f"\n{vlan_commands}\n\n"
+                        config_content = config_content.replace("wr mem", f"{enhanced_section}wr mem")
+                    else:
+                        config_content += f"\n\n{vlan_commands}"
+                    print(f"DEBUG: Added VLAN commands for device {device_name} (no port configs)")
             
             return config_content
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate device config: {str(e)}")
+            return None
+    
+    def generate_device_specific_config(self, device_dict, device_site=None):
+        """Generate a completely device-specific configuration, bypassing base config"""
+        try:
+            device_name = device_dict.get('Device', '')
+            print(f"DEBUG: Generating device-specific config for: {device_name}")
+            
+            # Get device-specific settings
+            hostname = device_dict.get('Hostname', '')
+            ip_address = device_dict.get('IP-Address', '')
+            location = device_dict.get('Location', '')
+            isis_nickname = device_dict.get('ISIS Nick-name', '')
+            system_id = device_dict.get('System ID', '')
+            mgmt_vlan = device_dict.get('Management VLAN', '').strip()
+            gateway_ip = device_dict.get('Gateway IP', '').strip()
+            snmp_host = device_dict.get('SNMP Host', '').strip()
+            snmp_community = device_dict.get('SNMP Community', '').strip()
+            snmp_group = device_dict.get('SNMP Group', '').strip()
+            snmp_user = device_dict.get('SNMP User', '').strip()
+            snmp_auth_password = device_dict.get('Auth Password', '').strip()
+            snmp_priv_password = device_dict.get('Privacy Password', '').strip()
+            
+            # Parse device-specific VLANs
+            device_vlans = []
+            if mgmt_vlan:
+                try:
+                    device_vlans = self.parse_vlan_range(mgmt_vlan)
+                    print(f"DEBUG: Device {device_name} - Parsed VLANs from CSV: {device_vlans}")
+                except Exception as e:
+                    print(f"DEBUG: Error parsing VLANs for {device_name}: {e}")
+                    device_vlans = []
+            
+            # Also check VLAN assignments from port configuration dialogs
+            if hasattr(self, 'vlan_assignments') and device_name in self.vlan_assignments:
+                assigned_vlans = self.vlan_assignments[device_name]
+                print(f"DEBUG: Device {device_name} - VLAN assignments from dialogs: {assigned_vlans}")
+                # Merge VLANs from both sources, avoiding duplicates
+                for vlan_id in assigned_vlans:
+                    if vlan_id not in device_vlans:
+                        device_vlans.append(vlan_id)
+                print(f"DEBUG: Device {device_name} - Final VLANs: {device_vlans}")
+            
+            # Generate the configuration
+            config_lines = []
+            
+            # Header
+            config_lines.append("##############################################")
+            config_lines.append(f"#  {hostname} Configuration")
+            config_lines.append(f"#  Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            config_lines.append("##############################################")
+            config_lines.append("enable")
+            config_lines.append("config term")
+            config_lines.append("")
+            
+            # Hostname
+            if hostname:
+                config_lines.append(f'hostname "{hostname}"')
+                config_lines.append("")
+            
+            # SNMP Name and Location
+            if hostname:
+                config_lines.append(f"snmp-server name {hostname}")
+            if location:
+                config_lines.append(f'snmp-server location "{location}"')
+            config_lines.append("")
+            
+            # Device-specific VLANs
+            if device_vlans:
+                # Get VLAN details from base config and site-specific VLANs
+                vlan_details = {}
+                
+                # From base config
+                for item in self.base_vlan_tree.get_children():
+                    values = self.base_vlan_tree.item(item, 'values')
+                    vlan_id = int(values[0])
+                    vlan_name = values[1]
+                    i_sid = int(values[2])
+                    vlan_details[vlan_id] = {'name': vlan_name, 'i_sid': i_sid}
+                
+                # From site-specific VLANs
+                device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+                if device_site in self.site_vlans:
+                    for vlan_id, vlan_name, i_sid in self.site_vlans[device_site]:
+                        vlan_details[vlan_id] = {'name': vlan_name, 'i_sid': i_sid}
+                
+                for vlan_id in device_vlans:
+                    # Check if this VLAN comes from Management VLAN field first
+                    vlan_name = f"VLAN {vlan_id}"  # Default name
+                    if device_name and hasattr(self, 'csv_data'):
+                        device_data = next((d for d in self.csv_data if d.get('Device') == device_name), None)
+                        if device_data and device_data.get('Management VLAN', '').strip():
+                            mgmt_vlans = self.parse_vlan_range(device_data.get('Management VLAN', ''))
+                            if vlan_id in mgmt_vlans:
+                                vlan_name = "Management"
+                    
+                    if vlan_id in vlan_details and vlan_name == f"VLAN {vlan_id}":
+                        # Only use base config name if not from Management VLAN field
+                        vlan_info = vlan_details[vlan_id]
+                        config_lines.append(f'vlan create {vlan_id} name "{vlan_info["name"]}" type port-mstprstp 0')
+                        config_lines.append(f'vlan i-sid {vlan_id} {vlan_info["i_sid"]}')
+                    else:
+                        # Use the determined vlan_name (either "Management VLAN" or "VLAN {id}")
+                        config_lines.append(f'vlan create {vlan_id} name "{vlan_name}" type port-mstprstp 0')
+                        config_lines.append(f'vlan i-sid {vlan_id} 1040{vlan_id:03d}')
+                config_lines.append("")
+            
+            # Management Configuration
+            config_lines.append("# Management Configuration")
+            config_lines.append("no mgmt vlan")
+            if mgmt_vlan and device_vlans:
+                config_lines.append(f"mgmt vlan {device_vlans[0]}")  # Use first VLAN as management VLAN
+            if ip_address:
+                config_lines.append(f"ip address {ip_address}/24")
+            if gateway_ip:
+                config_lines.append(f"ip route 0.0.0.0 0.0.0.0 next-hop {gateway_ip}")
+            config_lines.append("no mgmt dhcp-client")
+            config_lines.append("")
+            
+            # ISIS SPB-M Configuration
+            if system_id and isis_nickname:
+                config_lines.append("# ISIS SPB-M Configuration")
+                config_lines.append("no router isis")
+                config_lines.append("y")
+                config_lines.append("router isis")
+                if hostname:
+                    config_lines.append(f"sys-name {hostname}")
+                config_lines.append(f"system-id {system_id}")
+                config_lines.append("manual-area 49.0000")
+                config_lines.append(f"spbm 1 nick-name {isis_nickname}")
+                config_lines.append("exit")
+                config_lines.append("")
+                config_lines.append("router isis enable")
+                config_lines.append("")
+            
+            # SSH Configuration
+            config_lines.append("# SSH Configuration")
+            config_lines.append("ssh")
+            config_lines.append("")
+            
+            # NTP Configuration (use site-specific if available)
+            if device_site and device_site in self.batch_sites:
+                site = self.batch_sites[device_site]
+                if site.ntp_servers:
+                    config_lines.append("# NTP Configuration")
+                    for ntp_server in site.ntp_servers:
+                        config_lines.append(f"ntp server {ntp_server}")
+                    config_lines.append("")
+            
+            # SNMP Security Configuration
+            if snmp_user and snmp_auth_password and snmp_priv_password:
+                config_lines.append("# SNMP Security Configuration")
+                config_lines.append("snmp-server view ALL 1")
+                if snmp_group:
+                    config_lines.append(f'snmp-server group "{snmp_group}" "" auth-priv read-view ALL write-view ALL notify-view ALL')
+                config_lines.append(f"snmp-server user {snmp_user} SHA {snmp_auth_password} aes {snmp_priv_password}")
+                if snmp_group:
+                    config_lines.append(f'snmp-server user {snmp_user} group "{snmp_group}"')
+                if snmp_host:
+                    config_lines.append(f"snmp-server host {snmp_host} v3 authPriv SNMPv3")
+                config_lines.append("")
+            
+            # Disable TFTP Server
+            config_lines.append("# Disable TFTP Server")
+            config_lines.append("no boot config flags tftpd")
+            config_lines.append("")
+            
+            # Save Configuration
+            config_lines.append("# Save Configuration")
+            config_lines.append("wr mem")
+            
+            config_content = "\n".join(config_lines)
+            print(f"DEBUG: Generated device-specific config for {device_name} with {len(device_vlans)} VLANs")
+            return config_content
+            
+        except Exception as e:
+            print(f"DEBUG: Error generating device-specific config: {e}")
             return None
     
     def refresh_preview(self):
@@ -4414,27 +5479,78 @@ class VOSSManagerGUI:
         
         threading.Thread(target=apply_config_thread, daemon=True).start()
     
-    def generate_base_config_template(self):
-        """Generate template from base configuration tab"""
+    def generate_base_config_template(self, device_site=None, device_dict=None):
+        """Generate template from base configuration tab with optional site-specific and device-specific settings"""
         try:
-            # Create a temporary config using base config settings
+            # Use site-specific settings if device_site is provided and exists
+            if device_site and device_site in self.batch_sites:
+                site = self.batch_sites[device_site]
+                gateway = site.gateway or self.base_gateway_var.get()
+                snmp_location = site.snmp_location or "$location$"
+                snmp_community = site.snmp_community or self.base_snmp_community_var.get()
+                snmp_host = site.snmp_host or self.base_snmp_host_var.get()
+                snmp_group = site.snmp_group or self.base_snmp_group_var.get()
+                snmp_user = site.snmp_user or self.base_snmp_user_var.get()
+                snmp_auth_password = site.snmp_auth_password or self.base_snmp_auth_pass_var.get()
+                snmp_priv_password = site.snmp_priv_password or self.base_snmp_priv_pass_var.get()
+                timezone = site.timezone or self.base_timezone_var.get()
+                ntp_servers = site.ntp_servers or ([s.strip() for s in self.base_ntp_var.get().split(',') if s.strip()] if self.base_ntp_var.get() else [])
+                name_servers = site.name_servers or ([s.strip() for s in self.base_dns_var.get().split(',') if s.strip()] if self.base_dns_var.get() else [])
+                enable_isis = site.enable_isis if hasattr(site, 'enable_isis') else self.base_enable_isis_var.get()
+                isis_area = site.isis_area or self.base_isis_area_var.get()
+            
+            # Override with device-specific settings if available
+            if device_dict:
+                device_gateway = device_dict.get('Gateway IP', '').strip()
+                if device_gateway:
+                    gateway = device_gateway
+                    print(f"DEBUG: Using device-specific gateway: {gateway}")
+                else:
+                    print(f"DEBUG: No device-specific gateway, using: {gateway}")
+                
+                snmp_host = device_dict.get('SNMP Host', '').strip() or snmp_host
+                snmp_community = device_dict.get('SNMP Community', '').strip() or snmp_community
+                snmp_group = device_dict.get('SNMP Group', '').strip() or snmp_group
+                snmp_user = device_dict.get('SNMP User', '').strip() or snmp_user
+                snmp_auth_password = device_dict.get('Auth Password', '').strip() or snmp_auth_password
+                snmp_priv_password = device_dict.get('Privacy Password', '').strip() or snmp_priv_password
+            
+            if device_site and device_site in self.batch_sites:
+                pass  # Settings already determined above
+            else:
+                # Use base config settings
+                gateway = self.base_gateway_var.get()
+                snmp_location = "$location$"
+                snmp_community = self.base_snmp_community_var.get()
+                snmp_host = self.base_snmp_host_var.get()
+                snmp_group = self.base_snmp_group_var.get()
+                snmp_user = self.base_snmp_user_var.get()
+                snmp_auth_password = self.base_snmp_auth_pass_var.get()
+                snmp_priv_password = self.base_snmp_priv_pass_var.get()
+                timezone = self.base_timezone_var.get()
+                ntp_servers = [s.strip() for s in self.base_ntp_var.get().split(',') if s.strip()] if self.base_ntp_var.get() else []
+                name_servers = [s.strip() for s in self.base_dns_var.get().split(',') if s.strip()] if self.base_dns_var.get() else []
+                enable_isis = self.base_enable_isis_var.get()
+                isis_area = self.base_isis_area_var.get()
+            
+            # Create a temporary config using the determined settings
             config = SwitchConfig(
                 hostname="$sys-name$",
-                snmp_location="$location$",
+                snmp_location=snmp_location,
                 mgmt_ip="$ip-address$",
-                gateway=self.base_gateway_var.get(),
-                system_id="$sys-id$" if self.base_enable_isis_var.get() else "",
-                nick_name="$nick-name$" if self.base_enable_isis_var.get() else "",
+                gateway=gateway,
+                system_id="$sys-id$" if enable_isis else "",
+                nick_name="$nick-name$" if enable_isis else "",
                 vlans=self.get_base_vlans_from_tree(),
-                enable_isis=self.base_enable_isis_var.get(),
-                snmp_community=self.base_snmp_community_var.get(),
-                snmp_host=self.base_snmp_host_var.get(),
-                snmp_group=self.base_snmp_group_var.get(),
-                snmp_user=self.base_snmp_user_var.get(),
-                snmp_auth_password=self.base_snmp_auth_pass_var.get(),
-                snmp_priv_password=self.base_snmp_priv_pass_var.get(),
-                timezone=self.base_timezone_var.get(),
-                ntp_servers=[s.strip() for s in self.base_ntp_var.get().split(',') if s.strip()] if self.base_ntp_var.get() else []
+                enable_isis=enable_isis,
+                snmp_community=snmp_community,
+                snmp_host=snmp_host,
+                snmp_group=snmp_group,
+                snmp_user=snmp_user,
+                snmp_auth_password=snmp_auth_password,
+                snmp_priv_password=snmp_priv_password,
+                timezone=timezone,
+                ntp_servers=ntp_servers
             )
             
             # Generate the configuration
@@ -4444,14 +5560,18 @@ class VOSSManagerGUI:
             # Note: Gateway is now auto-detected from CSV, so not strictly required
             gateway = self.base_gateway_var.get()
             if not gateway.strip():
-                # Try to auto-detect gateway if not set
-                detected_gateway = self.analyze_network_and_detect_gateway()
-                if detected_gateway:
-                    self.base_gateway_var.set(detected_gateway)
-                    gateway = detected_gateway
+                # Try to auto-detect gateway if not set and no device-specific gateways
+                has_device_gateways = any(device.get('Gateway IP', '').strip() for device in self.csv_data) if hasattr(self, 'csv_data') and self.csv_data else False
+                if not has_device_gateways:
+                    detected_gateway = self.analyze_network_and_detect_gateway()
+                    if detected_gateway:
+                        self.base_gateway_var.set(detected_gateway)
+                        gateway = detected_gateway
+                    else:
+                        messagebox.showwarning("Warning", "No gateway configured and auto-detection failed. Using default gateway 192.168.1.1")
                 else:
-                    messagebox.showwarning("Warning", "No gateway configured and auto-detection failed. Using default gateway 192.168.1.1")
-                    gateway = "192.168.1.1"
+                    # Use device-specific gateways, base gateway not needed
+                    gateway = "192.168.1.1"  # Placeholder, will be overridden by device-specific values
                     self.base_gateway_var.set(gateway)
             
             if self.base_enable_isis_var.get():
@@ -4547,23 +5667,33 @@ class VOSSManagerGUI:
                     progress_dialog.update()
                     
                     # Validate required fields for device
-                    required_fields = ['sys-name', 'IP-Address', 'Location', 'Nick-name', 'sys-id']
+                    required_fields = ['Hostname', 'IP-Address', 'Location', 'ISIS Nick-name', 'System ID']
                     missing_fields = [field for field in required_fields if not device.get(field, '').strip()]
                     
                     if missing_fields:
                         failed_devices.append(f"{device_name}: Missing required fields: {', '.join(missing_fields)}")
                         continue
                     
+                    # Get site for this device
+                    device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+                    
                     # Generate full device config (includes VLAN and port configs if present)
-                    config_content = self.generate_device_config(device)
+                    config_content = self.generate_device_config(device, device_site)
                     if not config_content:
                         failed_devices.append(f"{device_name}: Failed to generate configuration")
                         continue
                     
+                    # Create site-specific folder
+                    safe_site_name = re.sub(r'[^\w\-_.]', '_', device_site)
+                    site_output_dir = os.path.join(output_dir, safe_site_name)
+                    
+                    # Create site directory if it doesn't exist
+                    os.makedirs(site_output_dir, exist_ok=True)
+                    
                     # Generate output filename (sanitize filename)
                     safe_device_name = re.sub(r'[^\w\-_.]', '_', device_name)
                     output_filename = f"{safe_device_name}_config.txt"
-                    output_path = os.path.join(output_dir, output_filename)
+                    output_path = os.path.join(site_output_dir, output_filename)
                     
                     # Write configuration file
                     with open(output_path, 'w', encoding='utf-8') as output_file:
@@ -4582,8 +5712,18 @@ class VOSSManagerGUI:
             # Close progress dialog after a brief delay
             progress_dialog.after(1500, progress_dialog.destroy)
             
-            # Show results
-            result_message = f"Successfully generated {generated_count} configuration files in:\n{output_dir}"
+            # Show results with site information
+            site_folders = set()
+            for device in self.csv_data:
+                device_name = device.get('Device', '')
+                device_site = self.device_site_assignments.get(device_name, 'Unassigned')
+                site_folders.add(device_site)
+            
+            if len(site_folders) == 1 and 'Unassigned' in site_folders:
+                result_message = f"Successfully generated {generated_count} configuration files in:\n{output_dir}"
+            else:
+                site_info = "\n".join([f"  - {site}" for site in sorted(site_folders)])
+                result_message = f"Successfully generated {generated_count} configuration files in site-specific folders:\n{output_dir}\n\nSites created:\n{site_info}"
             if failed_devices:
                 result_message += f"\n\nFailed devices ({len(failed_devices)}):\n" + "\n".join(failed_devices[:10])
                 if len(failed_devices) > 10:

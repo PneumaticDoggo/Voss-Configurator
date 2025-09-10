@@ -1,2 +1,0 @@
-IP-Address,Device,Location,Nick-name,sys-id,sys-name,Notes,VLAN Range
-10.0.0.1,exampleSW-01,example-location,0.e2.20,00e2.000a.0001,exampleSW-01,Universal Switch,2000
