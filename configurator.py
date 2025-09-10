@@ -424,16 +424,14 @@ class VOSSManagerGUI:
                 "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/configurator.py"
             )
 
-            # If remote VERSION is available and newer, prompt to update
-            if remote_version is not None and \
-               self._parse_version(remote_version) > self._parse_version(local_version):
-                with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
-                    latest_bytes = resp.read()
-                if self.prompt_for_update(local_version, remote_version):
-                    self.perform_auto_update(latest_bytes)
-                return
+            if remote_version is not None and local_version is not None:
+                if self._parse_version(remote_version) > self._parse_version(local_version):
+                    with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
+                        latest_bytes = resp.read()
+                    if self.prompt_for_update(local_version, remote_version):
+                        self.perform_auto_update(latest_bytes)
+                    return
 
-            # Also perform a hash compare as a secondary check (e.g., if VERSION wasn't bumped)
             with urllib.request.urlopen(github_raw_url, timeout=10) as resp:
                 latest_bytes = resp.read()
             latest_hash = hashlib.sha256(latest_bytes).hexdigest()
@@ -446,9 +444,9 @@ class VOSSManagerGUI:
                 current_hash = ""
 
             if not current_hash or latest_hash != current_hash:
-                # Prefer showing versions if we have them, otherwise generic labels
-                cur_label = local_version if remote_version is not None else "current"
-                new_label = remote_version if remote_version is not None else "latest"
+                # Show actual versions if available, otherwise show generic labels
+                cur_label = local_version if local_version else "current"
+                new_label = remote_version if remote_version else "latest"
                 if self.prompt_for_update(cur_label, new_label):
                     self.perform_auto_update(latest_bytes)
         except Exception:
