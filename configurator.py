@@ -387,6 +387,14 @@ class VOSSManagerGUI:
         return tuple(int(p) for p in parts[:4])
 
     def _read_local_version(self) -> str:
+        """Read local version from code or VERSION file"""
+        # First try to get version from the code itself
+        try:
+            return __version__ 
+        except NameError:
+            pass
+        
+        # Fallback to VERSION file
         try:
             here = os.path.dirname(__file__)
             version_path = os.path.join(here, "VERSION")
@@ -397,12 +405,24 @@ class VOSSManagerGUI:
                         return line
         except Exception:
             pass
-        try:
-            return __version__ 
-        except Exception:
-            return "0.0.0"
+        return "0.0.0"
 
     def _fetch_remote_version(self, timeout: int = 8) -> Optional[str]:
+        """Fetch remote version from code file first, then VERSION file"""
+        try:
+            code_url = (
+                "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/configurator.py"
+            )
+            with urllib.request.urlopen(code_url, timeout=timeout) as resp:
+                content = resp.read().decode("utf-8", errors="ignore")
+                # Look for __version__ = "x.x.x" pattern
+                import re
+                match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
+                if match:
+                    return match.group(1)
+        except Exception:
+            pass
+        
         try:
             version_url = (
                 "https://raw.githubusercontent.com/PneumaticDoggo/Voss-Configurator/main/VERSION"
@@ -444,7 +464,6 @@ class VOSSManagerGUI:
                 current_hash = ""
 
             if not current_hash or latest_hash != current_hash:
-                # Show actual versions if available, otherwise show generic labels
                 cur_label = local_version if local_version else "current"
                 new_label = remote_version if remote_version else "latest"
                 if self.prompt_for_update(cur_label, new_label):
