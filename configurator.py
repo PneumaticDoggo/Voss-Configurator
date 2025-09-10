@@ -25,7 +25,7 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Optional, Tuple
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 @dataclass
 class VLANConfig:
