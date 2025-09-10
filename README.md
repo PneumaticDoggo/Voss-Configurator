@@ -32,7 +32,11 @@ A comprehensive GUI tool for configuring and managing Extreme Networks VOSS swit
    pip install -r requirements.txt
    ```
 
-3. Run the application:
+3. Run the application (Windows):
+   ```
+   py -3.11 configurator.py
+   ```
+   Run the application (linux):
    ```
    python configurator.py
    ```
